@@ -1,0 +1,47 @@
+name: docs drift
+
+# Advisory only: warns when a PR changes code but no documentation.
+# It never fails the build — the judgement of whether docs were affected belongs to
+# the author, not to CI. This exists to catch forgetting, for changes made outside
+# Claude Code where the Stop hook does not run.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare changed code against changed docs
+        run: |
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+
+          code=$(printf '%s\n' "$changed" | grep -E '^(apps|packages)/' || true)
+          docs=$(printf '%s\n' "$changed" | grep -E '^docs/' || true)
+
+          if [ -n "$code" ] && [ -z "$docs" ]; then
+            {
+              echo "### Documentation drift check"
+              echo
+              echo "This PR changes code but no documentation."
+              echo
+              echo "If any spec, architecture doc, or ADR describes the code below, it may now be"
+              echo "out of date. Run \`/docs-sync\` locally, or tick the N/A box in the PR template."
+              echo
+              echo '```'
+              printf '%s\n' "$code"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::PR changes code but no docs. Run /docs-sync or confirm N/A."
+          else
+            echo "No drift signal." >> "$GITHUB_STEP_SUMMARY"
+          fi
