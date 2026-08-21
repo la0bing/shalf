@@ -2,7 +2,7 @@
 # Stop hook: advisory reminder when code changed but no docs did.
 #
 # Fires at the end of a turn. Never blocks — it prints a note and exits 0.
-# Rationale and the loop it guards: docs/README.md, .claude/skills/docs-maintenance/SKILL.md
+# Rationale and the loop it guards: .claude/skills/docs-sync/SKILL.md
 set -uo pipefail
 
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
@@ -16,7 +16,7 @@ code=$(printf '%s\n' "$changed" | grep -E '^(apps|packages)/' || true)
 docs=$(printf '%s\n' "$changed" | grep -E '^docs/' || true)
 
 if [ -n "$code" ] && [ -z "$docs" ]; then
-  printf '%s' '{"systemMessage":"Code changed under apps/ or packages/ but no docs changed. Run /docs-sync before committing, or confirm nothing documented was affected. See docs/README.md."}'
+  printf '%s' '{"systemMessage":"Code changed under apps/ or packages/ but no docs changed. Update the affected docs before committing (docs-sync skill), or confirm nothing documented was affected."}'
 fi
 
 exit 0

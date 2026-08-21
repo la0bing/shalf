@@ -1,49 +1,25 @@
 ---
-id: NNNN
-title: <Feature name>
-type: spec
-status: draft
-owner: la0bing
-created: YYYY-MM-DD
+status: draft            # draft | active | shipped
+components: []           # workspace paths this touches, e.g. [apps/web] — how docs-sync finds this spec
 updated: YYYY-MM-DD
-components: []
-related: []
-summary: <One sentence. Goes verbatim into INDEX.md — write it for someone deciding whether to open this file.>
-tags: []
+summary: One sentence — for a reader deciding whether to open this file.
 ---
 
 # <Feature name>
 
 ## Problem
 
-What is wrong or missing today, and for whom. Describe the situation, not the solution.
+What is wrong or missing today, and for whom. The situation, not the solution.
 
-## Goals
+## Approach
 
-- What this must achieve, in outcome terms.
+How it works. Enough detail to implement from, no more. Non-goals worth stating go here too —
+being explicit prevents scope drift.
 
-## Non-goals
+## Rejected alternatives
 
-- What this deliberately does not cover. Being explicit here prevents scope drift later, and stops
-  a reader assuming an omission was an oversight.
-
-## Proposed approach
-
-How it works. Enough detail to implement from, no more. Link out to ADRs for decisions rather than
-re-arguing them here.
-
-## Data / interface changes
-
-Schema, API surface, config, or events introduced or altered. Omit the section if none.
-
-## Alternatives considered
-
-Options rejected, and the reason. This is the part that stops the same discussion reopening later.
-
-## Risks and open questions
-
-- [ ] Unresolved question, and who or what resolves it.
+Options considered and why they lost — this stops the same discussion reopening.
 
 ## Acceptance
 
-Observable conditions that mean this is done — how you would verify it, not "code merged".
+Observable conditions that mean this is done.
