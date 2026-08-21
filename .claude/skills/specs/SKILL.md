@@ -6,7 +6,7 @@ description: Use when starting non-trivial work, writing a new feature spec, fin
 # Specs
 
 One file per feature in `docs/specs/NNNN-slug.md` — intent at a point in time. `_TEMPLATE.md` is
-the structure; `0001-example-spec.md` shows the expected depth.
+the structure; `0002-platform-foundation.md` shows the expected depth.
 
 ## Finding one
 

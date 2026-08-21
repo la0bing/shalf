@@ -1,9 +1,10 @@
 # shalf
 
-Monorepo: all code for the project plus its specs and docs.
+Monorepo: a self-built, modular, end-to-end ML platform — independent building blocks
+(experiments, registry, serving, pipelines, monitoring…) on a shared spine.
 
-> **Stack not chosen yet.** `apps/` and `packages/` are empty placeholders. Record the stack
-> decision in `docs/architecture.md` before adding workspace tooling.
+> Stack: Python 3.12+/FastAPI/uv — decision records in `docs/architecture.md`. `apps/` and
+> `packages/` are still empty; the foundation lands per `docs/specs/0002-platform-foundation.md`.
 
 ## Where to look
 
@@ -11,7 +12,9 @@ Monorepo: all code for the project plus its specs and docs.
 |---|---|
 | What the project is for, priorities | `docs/product.md` |
 | The spec for a feature | `docs/specs/` — filenames + `summary:` frontmatter say what each covers |
+| Block boundaries, spine, composition rules | `docs/specs/0002-platform-foundation.md` |
 | How the system is built today, and why | `docs/architecture.md` |
+| Running locally, K8s, compose/Helm conventions | `docs/deployment.md` |
 | Naming, file placement, commits | `docs/conventions.md` |
 
 ## Working rules
