@@ -35,6 +35,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["packages", "services", "examples"]
 addopts = "--import-mode=importlib -q"
+filterwarnings = [
+    # Raised inside duckdb's DataFrame conversion (.df()), not by shalf code.
+    "ignore:The inplace keyword in DataFrame.drop is deprecated",
+]
 
 [tool.ruff]
 line-length = 100

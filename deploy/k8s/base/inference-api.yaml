@@ -30,8 +30,8 @@ spec:
             - name: http
               containerPort: 8080
           env:
-            - name: SHALF_CONFIG
-              value: /etc/shalf/shalf.yaml
+            - name: SHALF_PROFILE
+              value: serving
           envFrom:
             - configMapRef:
                 name: shalf-env
@@ -51,15 +51,9 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: config
-              mountPath: /etc/shalf
-              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: config
-          configMap:
-            name: shalf-feature-store-config
         - name: tmp
           emptyDir: {}
 ---

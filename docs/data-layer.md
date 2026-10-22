@@ -78,8 +78,8 @@ Conveniences:
 - `store.preview("txn_stats")` shows computed rows. `shalf-data plan` shows
   what a change to the code would trigger (see [Changing feature logic](#changing-feature-logic-backfills)).
 
-[`examples/quickstart/feature_repo/features.py`](../examples/quickstart/feature_repo/features.py)
-is a complete repo: three SQLite tables, declarative aggregations (one of them
+[`examples/quickstart/features/features.py`](../examples/quickstart/features/features.py)
+is a complete project: dbt models over three SQLite tables, declarative aggregations (one of them
 filtering on a point-in-time joined merchant attribute), a derived-on-derived
 view, an on-demand view with request data, and a feature service.
 
@@ -93,6 +93,12 @@ system calls. The base class guarantees:
 - the event-time column is always returned as `event_timestamp`
   (`datetime64[ns, UTC]`), and the optional created-time column as
   `created_timestamp`, which breaks ties between rows with the same event time.
+
+Built in:
+- `SQLiteSource`, `PostgresSource`
+- `DuckDBSource`: Parquet/CSV globs or any DuckDB query, with filters pushed down
+- `DbtModelSource(model=...)`: reads the Parquet output of a dbt model in the project
+- `FileSource`, `DataFrameSource`
 
 Subclasses implement `_read()`. `SQLDataSource` covers any DB-API driver: it
 takes a `table` *or* an arbitrary `query` (wrapped as a sub-query), pushes the
@@ -194,7 +200,7 @@ for the same entities and time.
 ## Configuration
 
 ```yaml
-# feature_repo/shalf.yaml
+# <project>/shalf.yaml
 project: quickstart
 definitions: [entities.py, features.py]   # files or directories
 offline_store: {type: pandas}
@@ -203,9 +209,11 @@ online_store:
   url: ${SHALF_REDIS_URL}
 ```
 
-Relative `path`s resolve against the repo. `$SHALF_CONFIG` replaces the file
-entirely, which is how the Kubernetes ConfigMap switches the online store to
-Redis.
+Relative `path` / `*_path` / `*_dir` entries resolve against the project.
+`$SHALF_PROFILE` picks a profile. The platform's Kubernetes base sets
+`serving`, `batch` or `eda` per workload, which is how the same file switches
+to Redis in the cluster. `$SHALF_CONFIG` can point at a different file
+entirely.
 
 ## Extending
 
@@ -293,7 +301,7 @@ notebooks ──────▶ feature-server-eda ──▶ Redis replica (read
    │                (priority: shalf-eda, profile: eda)
    └──▶ get_historical_features / preview ──▶ Parquet offline cache (cache_only)
 
-materializer / backfills ──▶ source DB *replica* ──▶ cache + Redis primary
+pipelines / backfills ──▶ source DB *replica* ──▶ dbt ──▶ cache + Redis primary
                     (priority: shalf-batch)
 ```
 
@@ -368,9 +376,15 @@ shalf-data promote                  # switch readers to the new versions togethe
 - Old versions stay in the cache and online store until removed. Garbage
   collection is not implemented yet.
 
-On Kubernetes, `deploy/k8s/jobs/backfill.yaml` is a one-off Job template for
-long backfills. It uses the same image tag as the deployed code, so its
-versions match.
+dbt models take part in the same flow. `DbtModelSource` includes the
+checksum of the model's SQL, macros and upstream models (from dbt's
+`manifest.json`) in the view version. Editing `fct_transactions.sql` therefore
+re-versions every view built on it, and only those.
+
+On Kubernetes, `shalf-pipelines run hourly --start ... --end ...` runs a
+backfill (see the quickstart's `deploy/jobs/backfill.yaml`). It passes the
+range to dbt as `--vars` for incremental models, and uses the same image tag
+as the deployed code so the versions match.
 
 ## Known limitations / next steps
 

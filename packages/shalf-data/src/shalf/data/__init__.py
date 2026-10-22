@@ -35,6 +35,8 @@ from shalf.data.registry import FeatureRef, FeatureRegistry, RegistryError
 from shalf.data.sources import (
     DataFrameSource,
     DataSource,
+    DbtModelSource,
+    DuckDBSource,
     FileSource,
     PostgresSource,
     SQLDataSource,
@@ -58,7 +60,9 @@ __all__ = [
     "BaseFeatureView",
     "DataFrameSource",
     "DataSource",
+    "DbtModelSource",
     "DerivedFeatureView",
+    "DuckDBSource",
     "Entity",
     "FeatureRef",
     "FeatureRegistry",

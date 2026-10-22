@@ -1,0 +1,53 @@
+# One-off backfill, e.g. after changing a dbt model or feature logic:
+#   kubectl -n shalf exec deploy/feature-server -- shalf-data plan    # what changed
+#   kubectl -n shalf create -f deploy/jobs/backfill.yaml
+#   kubectl -n shalf exec deploy/feature-server -- shalf-data preview <view>
+#   kubectl -n shalf exec deploy/feature-server -- shalf-data promote # or add --promote below
+# Use the same image tag as the deployed code so the versions match.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: pipeline-backfill-
+  labels:
+    app.kubernetes.io/part-of: shalf
+    app.kubernetes.io/component: backfill
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: shalf
+      priorityClassName: shalf-batch
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: backfill
+          image: ghcr.io/la0bing/quickstart-jobs:1.0.0
+          command: ["shalf-pipelines", "run", "hourly", "--start", "2024-01-01T00:00:00Z"]
+          env:
+            - name: SHALF_PROFILE
+              value: batch
+          envFrom:
+            - configMapRef:
+                name: shalf-env
+            - secretRef:
+                name: shalf-secrets
+          resources:
+            requests: {cpu: "2", memory: 8Gi}
+            limits: {memory: 16Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: shalf-data
+        - name: tmp
+          emptyDir: {}

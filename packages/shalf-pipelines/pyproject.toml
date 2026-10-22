@@ -1,9 +1,21 @@
 [project]
 name = "shalf-pipelines"
 version = "0.1.0"
-description = "shalf pipelines: orchestrator-agnostic step/pipeline DAGs"
+description = "shalf pipelines: scheduled/backfill runs of dbt transforms + feature materialisation"
 requires-python = ">=3.11"
-dependencies = ["shalf-core"]
+dependencies = [
+    "shalf-core",
+    "shalf-data",
+]
+
+[project.optional-dependencies]
+dbt = [
+    "dbt-core>=1.9",
+    "dbt-duckdb>=1.9",
+]
+
+[project.scripts]
+shalf-pipelines = "shalf.pipelines.cli:main"
 
 [build-system]
 requires = ["hatchling"]

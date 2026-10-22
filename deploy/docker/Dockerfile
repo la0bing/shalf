@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1.7
-# One Dockerfile for every service in services/:
-#   docker build -f deploy/docker/Dockerfile \
-#     --build-arg SERVICE=feature-server --build-arg APP_MODULE=feature_server.app:app .
+# Platform base images. They contain the shalf libraries and services but no
+# project code; a project builds FROM them and adds itself at /app/project
+# (see examples/quickstart/Dockerfile).
+#
+#   SERVICE=feature-server  APP_MODULE=feature_server.app:app  -> shalf-feature-server
+#   SERVICE=inference-api   APP_MODULE=inference_api.app:app   -> shalf-inference-api
+#   SERVICE=platform-jobs   DUCKDB_EXTENSIONS="sqlite postgres" -> shalf-platform-jobs
 ARG PYTHON_VERSION=3.12
 
 FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
@@ -18,19 +22,25 @@ COPY services ./services
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package "${SERVICE}"
 
-# ---- runtime: just the virtualenv + the feature repository ----
+# ---- runtime: the virtualenv only ----
 FROM python:${PYTHON_VERSION}-slim AS runtime
-ARG APP_MODULE
-ARG FEATURE_REPO=examples/quickstart/feature_repo
-RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin shalf
+ARG APP_MODULE=""
+ARG DUCKDB_EXTENSIONS=""
+RUN useradd --uid 10001 --create-home --home-dir /home/shalf --shell /usr/sbin/nologin shalf \
+    && mkdir -p /app/project && chown 10001:10001 /app/project
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
-COPY ${FEATURE_REPO} /app/feature_repo
 ENV PATH=/app/.venv/bin:$PATH \
+    HOME=/home/shalf \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    SHALF_REPO_PATH=/app/feature_repo \
+    SHALF_REPO_PATH=/app/project \
     APP_MODULE=${APP_MODULE}
 USER 10001
+# DuckDB downloads extensions on first use; bake them into the image so pods
+# (read-only root filesystem, often no internet) never need to.
+RUN if [ -n "$DUCKDB_EXTENSIONS" ]; then \
+      python -c "import duckdb, sys; con = duckdb.connect(); [con.install_extension(e) for e in sys.argv[1:]]" $DUCKDB_EXTENSIONS; \
+    fi
 EXPOSE 8080
 CMD ["sh", "-c", "exec uvicorn \"$APP_MODULE\" --host 0.0.0.0 --port 8080"]

@@ -1,8 +1,9 @@
 """Online feature server.
 
 Environment:
-    SHALF_REPO_PATH  feature repository directory (baked into the image)
-    SHALF_CONFIG     optional shalf.yaml override (mounted from a ConfigMap)
+    SHALF_REPO_PATH  project directory (/app/project in project images)
+    SHALF_PROFILE    shalf.yaml profile: `serving`, or `eda` for the EDA server
+    SHALF_CONFIG     optional path to a different shalf.yaml
 """
 
 from __future__ import annotations

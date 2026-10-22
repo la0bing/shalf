@@ -1,0 +1,25 @@
+version: 2
+
+# A failing test stops the pipeline before any feature is materialised.
+models:
+  - name: fct_transactions
+    columns:
+      - name: customer_id
+        tests: [not_null]
+      - name: merchant_id
+        tests: [not_null]
+      - name: created_at
+        tests: [not_null]
+  - name: dim_customers
+    columns:
+      - name: customer_id
+        tests: [not_null]
+      - name: country
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["SG", "MY", "ID"]
+  - name: dim_merchants
+    columns:
+      - name: merchant_id
+        tests: [not_null]

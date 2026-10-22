@@ -1,11 +1,12 @@
+# Production deployment of the quickstart project. Expects a `shalf-secrets`
+# Secret with SHALF_REDIS_URL, SHALF_REDIS_REPLICA_URL (a read replica for
+# exploration) and SHALF_PG_DSN (a Postgres *read replica*, not the primary
+# the application writes to).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Expects a `shalf-secrets` Secret in the namespace with SHALF_REDIS_URL,
-# SHALF_REDIS_REPLICA_URL (a read replica for exploration) and SHALF_PG_DSN
-# when sources are on Postgres (point it at a read replica or the warehouse,
-# not the primary that the application writes to).
 resources:
-  - ../../base
+  # In a project's own repo: github.com/la0bing/shalf//deploy/k8s/base?ref=v0.1.0
+  - ../../../../deploy/k8s/base
 patches:
   - target: {kind: HorizontalPodAutoscaler, name: feature-server}
     patch: |-
@@ -26,9 +27,12 @@ patches:
           requests: {cpu: "1", memory: 1Gi}
           limits: {memory: 2Gi}
 images:
-  - name: shalf-feature-server
-    newName: ghcr.io/la0bing/shalf-feature-server
-    newTag: "0.1.0"
+  - name: shalf-project-serving
+    newName: ghcr.io/la0bing/quickstart-serving
+    newTag: "1.0.0"
+  - name: shalf-project-jobs
+    newName: ghcr.io/la0bing/quickstart-jobs
+    newTag: "1.0.0"
   - name: shalf-inference-api
     newName: ghcr.io/la0bing/shalf-inference-api
     newTag: "0.1.0"

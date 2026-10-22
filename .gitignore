@@ -20,3 +20,8 @@ examples/**/data/
 .idea/
 .vscode/
 .DS_Store
+
+# dbt (inside any project's transform/ directory)
+**/transform/target/
+**/transform/logs/
+**/transform/dbt_packages/

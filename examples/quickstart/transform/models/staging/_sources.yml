@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: app
+    description: The application's operational database (SQLite locally, Postgres in prod).
+    database: app
+    # SQLite's only schema is `main`; Postgres tables live in `public`.
+    schema: "{{ env_var('SHALF_SOURCE_SCHEMA', 'main') }}"
+    tables:
+      - name: transactions
+      - name: customers
+      - name: merchants

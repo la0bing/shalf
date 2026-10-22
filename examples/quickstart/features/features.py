@@ -1,41 +1,35 @@
-"""Quickstart feature definitions on top of a SQLite database.
+"""Quickstart feature definitions on top of the project's dbt models.
 
-DAG of views (arrows point downstream):
+    dbt model          feature views
+    dim_customers   -> customer_profile
+    fct_transactions -> transactions -> customer_txn_stats ----+-> customer_risk_profile
+    dim_merchants   -> merchant_profile -+                     |
+    fct_transactions + merchant_profile  +-> customer_merchant_risk
+    customer_txn_stats + request data   -> txn_amount_vs_avg (on-demand)
 
-    customers ── customer_profile ────────────────────────────────┐
-    transactions ── transactions ─┬── customer_txn_stats ─────────┼── customer_risk_profile
-    merchants ── merchant_profile ┴── customer_merchant_risk ─────┘
-                                      customer_txn_stats ── txn_amount_vs_avg (on-demand)
-
-Switching a source to Postgres is a one-line change:
-``PostgresSource(name=..., dsn=os.environ["SHALF_PG_DSN"], table=..., timestamp_field=...)``.
+Cleaning and business rules live in dbt (transform/); feature semantics
+(windows, point-in-time joins, online serving) live here. Reading a database
+directly is still possible, e.g. ``SQLiteSource(...)`` / ``PostgresSource(...)``.
 """
 
-import os
-from pathlib import Path
-
 import pandas as pd
-from entities import customer, merchant
+from features.entities import customer, merchant
 
 from shalf.data import (
     Aggregate,
     AggregationFeatureView,
+    DbtModelSource,
     FeatureService,
     FeatureView,
-    SQLiteSource,
     derived_feature_view,
     on_demand_feature_view,
 )
 
-DB_PATH = os.environ.get("SHALF_QUICKSTART_DB", str(Path(__file__).parent / "data" / "source.db"))
-
-# --- base views: typed columns straight from the database ----------------------
+# --- base views: typed columns from dbt models -----------------------------------
 customer_profile = FeatureView(
     name="customer_profile",
     entities=[customer],
-    source=SQLiteSource(
-        name="customers", path=DB_PATH, table="customers", timestamp_field="updated_at"
-    ),
+    source=DbtModelSource(model="dim_customers", timestamp_field="updated_at"),
     schema={"age": int, "country": str, "is_premium": bool},
     ttl="365d",
     owner="growth-team",
@@ -44,14 +38,7 @@ customer_profile = FeatureView(
 transactions = FeatureView(
     name="transactions",
     entities=[customer],
-    source=SQLiteSource(
-        name="transactions",
-        path=DB_PATH,
-        # Any SELECT works; it is wrapped as a sub-query and filtered by time.
-        query="SELECT customer_id, merchant_id, amount, created_at FROM transactions "
-        "WHERE amount > 0",
-        timestamp_field="created_at",
-    ),
+    source=DbtModelSource(model="fct_transactions", timestamp_field="created_at"),
     schema={"amount": float, "merchant_id": int},
     ttl="30d",
     online=False,  # raw events: only used to build other features
@@ -60,13 +47,7 @@ transactions = FeatureView(
 merchant_profile = FeatureView(
     name="merchant_profile",
     entities=[merchant],
-    source=SQLiteSource(
-        name="merchants",
-        path=DB_PATH,
-        table="merchants",
-        timestamp_field="updated_at",
-        field_mapping={"risk_score": "merchant_risk_score"},
-    ),
+    source=DbtModelSource(model="dim_merchants", timestamp_field="updated_at"),
     schema={"merchant_risk_score": float, "category": str},
     ttl="365d",
 )

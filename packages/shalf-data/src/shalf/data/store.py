@@ -24,6 +24,7 @@ from shalf.data.offline import (
 from shalf.data.online import OnlineStore, online_store_registry, serialize_entity_key
 from shalf.data.registry import Definition, FeatureRef, FeatureRegistry
 from shalf.data.repo import load_definitions
+from shalf.data.sources.dbt import configure_dbt
 from shalf.data.types import EVENT_TIMESTAMP, as_utc_datetime, to_python, utcnow
 
 log = get_logger(__name__)
@@ -115,7 +116,12 @@ class FeatureStore:
             if config_file.is_file()
             else FeatureStoreConfig()
         )
-        store = cls(config.resolve_paths(repo))
+        config = config.resolve_paths(repo)
+        configure_dbt(
+            warehouse_path=config.transform.get("warehouse_path"),
+            manifest_path=config.transform.get("manifest_path"),
+        )
+        store = cls(config)
         store.apply(load_definitions(repo, config.definitions))
         return store
 

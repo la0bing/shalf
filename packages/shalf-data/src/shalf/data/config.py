@@ -39,6 +39,10 @@ class FeatureStoreConfig(BaseModel):
     online_store: dict[str, Any] = {"type": "memory"}
     auto_promote: bool = True
     version_cache_seconds: float = 10.0
+    # Consumed by shalf-pipelines (dbt project location, schedules); the data
+    # layer only reads `transform.warehouse_path` / `transform.manifest_path`.
+    transform: dict[str, Any] = {}
+    pipelines: dict[str, Any] = {}
 
     @field_validator("definitions", mode="before")
     @classmethod
@@ -58,12 +62,12 @@ class FeatureStoreConfig(BaseModel):
         return cls.model_validate(interpolate_env(raw))
 
     def resolve_paths(self, base: Path) -> FeatureStoreConfig:
-        """Make relative ``path`` / ``*_path`` entries of store configs relative to ``base``."""
+        """Make relative ``path`` / ``*_path`` / ``*_dir`` entries relative to ``base``."""
 
         def fix(section: dict[str, Any]) -> dict[str, Any]:
             fixed = dict(section)
             for key, value in section.items():
-                is_path = key == "path" or key.endswith("_path")
+                is_path = key == "path" or key.endswith(("_path", "_dir"))
                 if (
                     is_path
                     and isinstance(value, str)
@@ -78,5 +82,6 @@ class FeatureStoreConfig(BaseModel):
             update={
                 "offline_store": fix(self.offline_store),
                 "online_store": fix(self.online_store),
+                "transform": fix(self.transform),
             }
         )

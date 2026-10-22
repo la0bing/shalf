@@ -1,0 +1,27 @@
+# dbt-duckdb: models are computed by DuckDB and written as Parquet to
+# $SHALF_WAREHOUSE_PATH. Source databases are ATTACHed read-only, so dbt never
+# writes to them. `shalf-pipelines` sets SHALF_WAREHOUSE_PATH and
+# SHALF_PROJECT_DIR from shalf.yaml before invoking dbt.
+quickstart:
+  target: dev
+  outputs:
+    dev:  # local: the SQLite database created by seed.py
+      type: duckdb
+      path: "{{ env_var('SHALF_WAREHOUSE_PATH') }}/warehouse.duckdb"
+      external_root: "{{ env_var('SHALF_WAREHOUSE_PATH') }}"
+      threads: 4
+      attach:
+        - path: "{{ env_var('SHALF_SOURCE_SQLITE', env_var('SHALF_PROJECT_DIR') ~ '/data/source.db') }}"
+          type: sqlite
+          alias: app
+          read_only: true
+    prod:  # Kubernetes: a Postgres *read replica* (DSN from the shalf-secrets Secret)
+      type: duckdb
+      path: "{{ env_var('SHALF_WAREHOUSE_PATH') }}/warehouse.duckdb"
+      external_root: "{{ env_var('SHALF_WAREHOUSE_PATH') }}"
+      threads: 4
+      attach:
+        - path: "{{ env_var('SHALF_PG_DSN', '') }}"
+          type: postgres
+          alias: app
+          read_only: true

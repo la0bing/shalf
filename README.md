@@ -12,7 +12,7 @@ monorepo and deployed to Kubernetes.
 | Serving runtime  | [`shalf-serving`](packages/shalf-serving)           | Skeleton      |
 | Inference API    | [`services/inference-api`](services/inference-api)  | Skeleton      |
 | Monitoring       | [`shalf-monitoring`](packages/shalf-monitoring)     | Skeleton      |
-| Pipelines        | [`shalf-pipelines`](packages/shalf-pipelines)       | Skeleton      |
+| Pipelines (dbt → features) | [`shalf-pipelines`](packages/shalf-pipelines) | **Implemented** |
 
 Every extension point (data sources, online/offline stores, transformations,
 model registries, predictors, drift detectors, experiment trackers) is a
@@ -25,11 +25,16 @@ benchmark); a Parquet offline cache so training and EDA don't touch source
 databases; a separate, low-priority EDA serving path; versioned feature
 logic with `plan` / `backfill` / `promote`.
 
+This repository is the **platform**. Teams build **projects** (feature
+definitions, a dbt project and schedules) on top of it, in their own repos.
+[`examples/quickstart`](examples/quickstart) is a complete project in exactly
+that layout. See [Platform vs. project](docs/architecture.md#platform-vs-project).
+
 ## Quickstart
 
 ```bash
 make install       # uv sync --all-packages
-make quickstart    # seed SQLite, build a training set, materialise, read online
+make quickstart    # SQLite -> dbt -> features -> training set -> online read
 make test
 make serve-features  # http://localhost:8080/docs
 uv run python examples/benchmarks/aggregations.py   # DuckDB vs pandas
@@ -38,21 +43,24 @@ uv run python examples/benchmarks/aggregations.py   # DuckDB vs pandas
 ## Layout
 
 ```
-packages/                 libraries (namespace package `shalf.*`, one dist each)
-  shalf-core/             plugin registry, config (env interpolation), logging
-  shalf-data/             sources, feature views, offline/online stores, CLI
+packages/                 platform libraries (namespace package `shalf.*`, one dist each)
+  shalf-core/             plugin registry, config (env interpolation, profiles), logging
+  shalf-data/             sources (incl. dbt models), feature views, offline/online stores, CLI
+  shalf-pipelines/        dbt build -> feature materialisation; scheduled runs and backfills
   shalf-training/         datasets from feature services, trainer/tracker interfaces
   shalf-models/           model artifacts + model registry interface
   shalf-serving/          predictor contract + feature-store glue
   shalf-monitoring/       drift detection
-  shalf-pipelines/        orchestrator-agnostic step DAGs
-services/                 deployables, one container image each
+services/                 platform services, one base image each
   feature-server/         FastAPI online feature serving
-  inference-api/          FastAPI model serving
-examples/quickstart/      a complete feature repository on SQLite
+  inference-api/          FastAPI model serving (skeleton)
+  platform-jobs/          batch image: dbt-core + dbt-duckdb + pipelines
 deploy/
-  docker/Dockerfile       one multi-stage Dockerfile, parameterised by SERVICE
-  k8s/                    Kustomize base + dev/prod overlays
+  docker/Dockerfile       builds the platform base images
+  k8s/base/               generic workloads for one project (image placeholders)
+  k8s/components/         optional add-ons (dev Redis)
+examples/quickstart/      an example *project*: shalf.yaml, features/, transform/ (dbt),
+                          Dockerfile (FROM platform images), deploy/ overlays
 docs/                     architecture and design docs
 ```
 

@@ -1,4 +1,4 @@
-"""End-to-end walk-through of the data layer on SQLite.
+"""End-to-end walk-through: app DB -> dbt -> features -> training set -> online.
 
 uv run python examples/quickstart/run.py
 """
@@ -19,18 +19,22 @@ from seed import seed  # noqa: E402
 
 from shalf.data import FeatureStore  # noqa: E402
 from shalf.data.types import utcnow  # noqa: E402
+from shalf.pipelines import run_pipeline  # noqa: E402
 
 
 def main() -> None:
+    shutil.rmtree(HERE / "data", ignore_errors=True)  # fresh demo
     seed()
-    data = HERE / "feature_repo" / "data"
-    for suffix in ("", "-wal", "-shm"):  # fresh online store and cache for the demo
-        (data / f"online.db{suffix}").unlink(missing_ok=True)
-    shutil.rmtree(data / "offline_cache", ignore_errors=True)
-    store = FeatureStore.from_repo(HERE / "feature_repo")
-    print("Feature views (dependency order):", [v.name for v in store.list_feature_views()])
+    store = FeatureStore.from_repo(HERE)
 
-    # 1. Offline: point-in-time correct training data for a model.
+    # 1. What the CronJobs run: dbt build, then materialise the affected views.
+    for pipeline in ("daily", "hourly"):
+        outputs = run_pipeline(store, str(HERE), pipeline)
+        print(
+            f"{pipeline}: dbt built {outputs['transform'].models}, features {outputs['features']}"
+        )
+
+    # 2. Offline: point-in-time correct training data (served from the cache).
     now = utcnow().floor("h")
     spine = pd.DataFrame(
         {
@@ -42,9 +46,6 @@ def main() -> None:
     )
     training = store.get_historical_features(spine, feature_service="fraud_model_v1")
     print("\nTraining frame:\n", training.to_string())
-
-    # 2. Materialise the latest values into the online store.
-    print("\nMaterialised:", store.materialize_incremental())
 
     # 3. Online: what the model server does per request.
     response = store.get_online_features(

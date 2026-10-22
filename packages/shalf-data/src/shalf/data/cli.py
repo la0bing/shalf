@@ -1,6 +1,6 @@
 """``shalf-data`` command line: the same operations the services and jobs run.
 
-    shalf-data --repo examples/quickstart/feature_repo apply
+    shalf-data --repo examples/quickstart apply
     shalf-data --repo ... list views
     shalf-data --repo ... materialize --start 2024-01-01 --end 2024-02-01
     shalf-data --repo ... materialize-incremental

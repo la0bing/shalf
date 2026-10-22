@@ -1,0 +1,47 @@
+# A shalf *project*: feature definitions + dbt project + schedules.
+# Relative paths resolve against this directory. ${VAR:-default} reads the
+# environment, which is how the same file works locally and in Kubernetes
+# (the platform's k8s base sets SHALF_WAREHOUSE_PATH, SHALF_OFFLINE_CACHE, ...).
+project: quickstart
+definitions:
+  - features
+
+offline_store:
+  type: pandas
+  cache_path: ${SHALF_OFFLINE_CACHE:-data/cache}
+online_store:
+  type: sqlite
+  path: ${SHALF_ONLINE_PATH:-data/online.db}
+
+# dbt project of this feature project (run in-process by shalf-pipelines).
+transform:
+  project_dir: transform
+  target: ${SHALF_DBT_TARGET:-dev}
+  target_path: ${SHALF_DBT_TARGET_PATH:-transform/target}
+  manifest_path: ${SHALF_DBT_MANIFEST:-transform/target/manifest.json}
+  warehouse_path: ${SHALF_WAREHOUSE_PATH:-data/warehouse}
+
+# What each scheduled run does: dbt build for the selection, then
+# materialise the feature views reading the rebuilt models (+ dependents).
+pipelines:
+  hourly:
+    dbt_select: "+tag:hourly"
+    views: affected
+  daily:
+    dbt_select: "+tag:daily"
+    views: affected
+
+# Profiles replace whole sections. The platform's Kubernetes base sets
+# SHALF_PROFILE=serving / batch / eda per workload.
+profiles:
+  serving:
+    online_store: {type: redis, url: "${SHALF_REDIS_URL}"}
+  batch:
+    online_store: {type: redis, url: "${SHALF_REDIS_URL}"}
+  eda:
+    offline_store: {type: pandas, cache_path: "${SHALF_OFFLINE_CACHE}", cache_only: true}
+    online_store: {type: redis, url: "${SHALF_REDIS_REPLICA_URL}", read_only: true}
+  # Notebook on a laptop: same isolation against the local stores.
+  local-eda:
+    offline_store: {type: pandas, cache_path: "${SHALF_OFFLINE_CACHE:-data/cache}", cache_only: true}
+    online_store: {type: sqlite, path: "${SHALF_ONLINE_PATH:-data/online.db}", read_only: true}

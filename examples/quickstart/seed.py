@@ -1,4 +1,4 @@
-"""Create the quickstart SQLite source database with synthetic data."""
+"""Create the quickstart's "application database" (SQLite) with synthetic data."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-DEFAULT_PATH = Path(__file__).parent / "feature_repo" / "data" / "source.db"
+DEFAULT_PATH = Path(__file__).parent / "data" / "source.db"
 
 
 def seed(path: str | Path = DEFAULT_PATH, *, now: datetime | None = None, seed: int = 7) -> Path:

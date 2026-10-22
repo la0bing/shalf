@@ -1,5 +1,3 @@
-# Throwaway in-cluster Redis for dev. Production uses a managed Redis whose URL
-# arrives through the `shalf-secrets` Secret.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +14,7 @@ spec:
       labels:
         app.kubernetes.io/name: redis
     spec:
+      priorityClassName: shalf-serving
       containers:
         - name: redis
           image: redis:7.4-alpine
