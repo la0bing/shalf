@@ -1,0 +1,139 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install workspace
+        run: uv sync --all-packages --frozen
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy packages/*/src services/*/src
+      - name: Test
+        run: uv run pytest
+
+  console-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/console/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/console/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  console-e2e:
+    # Real browser: dev OIDC provider + console + quickstart project.
+    needs: [python, console-web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: uv sync --all-packages --frozen
+      - name: Build the console UI
+        run: cd services/console/web && npm ci && npm run build
+      - name: Install Chromium
+        run: uv run --with playwright playwright install --with-deps chromium
+      - name: Browser end-to-end test
+        run: uv run --with playwright python services/console/e2e/run_e2e.py --screenshots e2e-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: console-e2e-screenshots
+          path: e2e-screenshots
+
+  compose-poc:
+    # The docker compose PoC from scratch: build, start, smoke-test.
+    needs: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: docker compose -f deploy/compose/docker-compose.yml up -d --build --wait --wait-timeout 300
+      - name: Smoke test
+        run: python3 deploy/compose/smoke_test.py
+      - name: Logs
+        if: always()
+        run: docker compose -f deploy/compose/docker-compose.yml logs --no-color | tail -300
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render the console and the example project's overlays
+        run: |
+          kubectl kustomize deploy/k8s/console > /dev/null
+          for overlay in examples/quickstart/deploy/*/; do
+            [ -f "$overlay/kustomization.yaml" ] || continue
+            echo "::group::$overlay"
+            kubectl kustomize "$overlay" > /dev/null
+            echo "::endgroup::"
+          done
+
+  images:
+    needs: python
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: feature-server
+            app_module: feature_server.app:app
+          - service: inference-api
+            app_module: inference_api.app:app
+          - service: platform-jobs
+            app_module: ""
+            duckdb_extensions: sqlite postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          push: false
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            APP_MODULE=${{ matrix.app_module }}
+            DUCKDB_EXTENSIONS=${{ matrix.duckdb_extensions }}
+          tags: shalf-${{ matrix.service }}:ci
+
+  console-image:
+    needs: [python, console-web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/console.Dockerfile
+          push: false
+          tags: shalf-console:ci

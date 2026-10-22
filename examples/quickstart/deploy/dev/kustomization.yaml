@@ -1,0 +1,48 @@
+# Dev cluster deployment of the quickstart project.
+# Sources: a Postgres DSN in the `shalf-secrets` Secret (SHALF_PG_DSN).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shalf-dev  # also renames the base Namespace object
+resources:
+  # In a project's own repo: github.com/la0bing/shalf//deploy/k8s/base?ref=v0.1.0
+  - ../../../../deploy/k8s/base
+components:
+  - ../../../../deploy/k8s/components/dev-redis
+configMapGenerator:
+  - name: shalf-env
+    behavior: merge
+    literals:
+      - SHALF_LOG_LEVEL=DEBUG
+patches:
+  - target: {kind: HorizontalPodAutoscaler}
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+  - target: {kind: Deployment}
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  # Single-node dev clusters (kind, minikube) rarely offer ReadWriteMany.
+  - target: {kind: PersistentVolumeClaim, name: shalf-data}
+    patch: |-
+      - op: replace
+        path: /spec/accessModes
+        value: ["ReadWriteOnce"]
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 10Gi
+images:
+  - name: shalf-project-serving
+    newName: ghcr.io/la0bing/quickstart-serving
+    newTag: dev
+  - name: shalf-project-jobs
+    newName: ghcr.io/la0bing/quickstart-jobs
+    newTag: dev
+  - name: shalf-inference-api
+    newName: ghcr.io/la0bing/shalf-inference-api
+    newTag: "0.1.0"

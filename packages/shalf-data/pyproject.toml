@@ -1,0 +1,33 @@
+[project]
+name = "shalf-data"
+version = "0.1.0"
+description = "shalf data layer: sources, feature definitions, offline/online feature stores"
+requires-python = ">=3.11"
+dependencies = [
+    "shalf-core",
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "duckdb>=1.1",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1"]
+redis = ["redis>=5.0"]
+parquet = ["pyarrow>=15"]
+
+[project.scripts]
+shalf-data = "shalf.data.cli:main"
+
+# Built-in plugins are registered on import; third-party packages add their
+# own under the same groups (see docs/data-layer.md#extending).
+# [project.entry-points."shalf.data.sources"]
+# [project.entry-points."shalf.data.online_stores"]
+# [project.entry-points."shalf.data.offline_stores"]
+# [project.entry-points."shalf.data.transformations"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shalf"]

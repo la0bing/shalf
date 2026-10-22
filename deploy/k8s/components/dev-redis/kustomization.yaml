@@ -1,0 +1,12 @@
+# Throwaway in-cluster Redis (primary + read replica) for dev clusters.
+# Production uses a managed Redis whose URLs come from the shalf-secrets Secret.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - redis.yaml
+configMapGenerator:
+  - name: shalf-env
+    behavior: merge
+    literals:
+      - SHALF_REDIS_URL=redis://redis:6379/0
+      - SHALF_REDIS_REPLICA_URL=redis://redis-replica:6379/0

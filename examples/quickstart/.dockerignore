@@ -1,0 +1,5 @@
+data/
+deploy/
+transform/target/
+transform/logs/
+**/__pycache__

@@ -1,0 +1,16 @@
+name: quickstart
+version: "1.0"
+profile: quickstart
+config-version: 2
+
+model-paths: ["models"]
+
+models:
+  quickstart:
+    staging:
+      # Views inside the DuckDB warehouse file: cheap, always current.
+      +materialized: view
+    marts:
+      # Parquet files under the warehouse path; feature views read these
+      # through DbtModelSource(model=...).
+      +materialized: external

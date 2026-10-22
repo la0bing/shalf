@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+    spec:
+      priorityClassName: shalf-serving
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - port: 6379
+---
+# Read replica: the EDA feature server reads here, so exploration traffic
+# never competes with serving reads on the primary.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-replica
+  labels:
+    app.kubernetes.io/name: redis-replica
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-replica
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-replica
+    spec:
+      priorityClassName: shalf-eda
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args: ["--replicaof", "redis", "6379", "--replica-read-only", "yes", "--save", ""]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-replica
+spec:
+  selector:
+    app.kubernetes.io/name: redis-replica
+  ports:
+    - port: 6379

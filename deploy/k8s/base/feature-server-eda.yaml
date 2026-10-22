@@ -1,0 +1,101 @@
+# Same image and code as the serving feature server, separate everything else:
+#   - SHALF_PROFILE=eda: reads a Redis *replica* read-only, and the offline
+#     cache only (cache_only), never the source databases;
+#   - lowest priority class, its own small autoscaling range;
+#   - only reachable from namespaces labelled shalf.io/eda-access=true.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feature-server-eda
+  labels:
+    app.kubernetes.io/name: feature-server-eda
+    app.kubernetes.io/component: exploration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: feature-server-eda
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: feature-server-eda
+    spec:
+      serviceAccountName: shalf
+      priorityClassName: shalf-eda
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: feature-server
+          image: shalf-project-serving
+          command: ["uvicorn", "feature_server.app:app", "--host", "0.0.0.0", "--port", "8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SHALF_PROFILE
+              value: eda
+          envFrom:
+            - configMapRef:
+                name: shalf-env
+            - secretRef:
+                name: shalf-secrets
+                optional: true
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "2", memory: 4Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: shalf-data
+            readOnly: true
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feature-server-eda
+spec:
+  selector:
+    app.kubernetes.io/name: feature-server-eda
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: feature-server-eda
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: feature-server-eda
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80

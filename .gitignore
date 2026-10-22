@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data produced by examples / tests
+*.db
+*.sqlite
+examples/**/data/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# dbt (inside any project's transform/ directory)
+**/transform/target/
+**/transform/logs/
+**/transform/dbt_packages/
+
+# console: SPA build output (built in CI / the image) and local dev data
+services/console/src/shalf_console/static/
+services/console/web/node_modules/
+/data/

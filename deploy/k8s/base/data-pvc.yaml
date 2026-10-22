@@ -1,0 +1,15 @@
+# Shared data volume:
+#   /data/warehouse  dbt models (Parquet) + the dbt-duckdb database file
+#   /data/cache      offline feature cache (Parquet per view version)
+# Pipelines write it; the EDA feature server and notebooks read it, so
+# exploration never queries source databases. Needs a ReadWriteMany storage
+# class (EFS, Filestore, Azure Files, NFS...).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shalf-data
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 100Gi

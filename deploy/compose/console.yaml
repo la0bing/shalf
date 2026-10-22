@@ -1,0 +1,26 @@
+# Console configuration for the docker compose PoC.
+base_url: http://localhost:8090
+database_url: postgresql+psycopg://shalf:shalf@postgres:5432/console
+cookie_secure: false            # plain http on localhost; use https + true anywhere else
+local_login: true
+bootstrap_admins: [admin@example.com]
+bootstrap_admin_password: ${SHALF_CONSOLE_ADMIN_PASSWORD:-change-me}
+oidc:
+  # Swap for your real provider (Okta, Entra ID, Google, Keycloak...):
+  # issuer, client_id, client_secret; register <base_url>/auth/oidc/<id>/callback.
+  - id: dev
+    name: Dev SSO
+    issuer: http://localhost:9555
+    client_id: shalf-console
+    client_secret: dev-secret
+    scopes: [openid, email, profile]
+projects:
+  - name: quickstart
+    type: local                 # loaded in-process from the image
+    path: /app/project
+    profile: batch              # Redis primary + read/write offline cache
+    description: Fraud features on the example app database (Postgres)
+    pipeline_runner: {type: thread}   # waits for the scheduler via the pipeline lock
+model_registry:
+  type: local
+  root: /data/models

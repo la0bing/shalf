@@ -1,0 +1,43 @@
+# Platform base: the generic workloads that run one shalf *project*.
+#
+# A project consumes this from its own repo, e.g.
+#   resources:
+#     - github.com/la0bing/shalf//deploy/k8s/base?ref=v0.1.0
+# and sets the image placeholders below to its own images (built FROM the
+# platform images, see examples/quickstart/Dockerfile and deploy/).
+#   shalf-project-serving  feature-server, feature-server-eda
+#   shalf-project-jobs     pipeline CronJobs (dbt + materialisation), backfills
+#   shalf-inference-api    inference API
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shalf
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shalf
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - priorityclasses.yaml
+  - data-pvc.yaml
+  - networkpolicies.yaml
+  - console-access.yaml
+  - feature-server.yaml
+  - feature-server-eda.yaml
+  - pipelines.yaml
+  - inference-api.yaml
+configMapGenerator:
+  # Platform conventions (paths inside the images and the shared volume).
+  # Secrets - SHALF_REDIS_URL, SHALF_REDIS_REPLICA_URL, SHALF_PG_DSN - go in
+  # the `shalf-secrets` Secret, created out of band (sealed/external secrets).
+  - name: shalf-env
+    options:
+      disableNameSuffixHash: true  # stable name, so ad-hoc Jobs can reference it
+    literals:
+      - SHALF_LOG_LEVEL=INFO
+      - SHALF_OFFLINE_CACHE=/data/cache
+      - SHALF_WAREHOUSE_PATH=/data/warehouse
+      - SHALF_DBT_TARGET=prod
+      - SHALF_DBT_TARGET_PATH=/tmp/dbt-target
+      - SHALF_DBT_MANIFEST=/app/project/transform/target/manifest.json
+      - SHALF_SOURCE_SCHEMA=public
+      - DBT_SEND_ANONYMOUS_USAGE_STATS=false
