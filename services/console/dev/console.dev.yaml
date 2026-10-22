@@ -1,0 +1,27 @@
+# Local development config:
+#   uv run python examples/quickstart/run.py           # create quickstart data
+#   uv run python services/console/dev/dev_idp.py      # optional: fake SSO on :9555
+#   SHALF_CONSOLE_CONFIG=services/console/dev/console.dev.yaml uv run shalf-console
+# then open http://localhost:8090 (admin@example.com / change-me-locally).
+base_url: ${SHALF_CONSOLE_URL:-http://localhost:8090}
+database_url: sqlite:///../../../data/console.db
+cookie_secure: false
+local_login: true
+bootstrap_admins: [admin@example.com]
+bootstrap_admin_password: ${SHALF_CONSOLE_ADMIN_PASSWORD:-change-me-locally}
+oidc:
+  - id: dev
+    name: Dev SSO
+    issuer: ${SHALF_DEV_IDP:-http://127.0.0.1:9555}
+    client_id: shalf-console
+    client_secret: dev-secret
+    scopes: [openid, email, profile]
+projects:
+  - name: quickstart
+    type: local
+    path: ../../../examples/quickstart
+    description: Fraud features on the example SQLite app database
+    pipeline_runner: {type: thread}
+model_registry:
+  type: local
+  root: ../../../data/model_registry

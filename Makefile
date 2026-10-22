@@ -6,7 +6,7 @@ IMAGE_REGISTRY ?= ghcr.io/la0bing
 TAG ?= dev
 OVERLAY ?= dev
 
-.PHONY: install lint fmt typecheck test quickstart pipeline serve-features docker-build project-images k8s-render
+.PHONY: install lint fmt typecheck test quickstart pipeline serve-features docker-build project-images k8s-render console-web console console-idp console-e2e
 
 install:            ## Install every workspace package (editable) + dev tools
 	uv sync --all-packages
@@ -46,3 +46,15 @@ project-images:     ## Build a project's serving + jobs images on top of the pla
 
 k8s-render:         ## Render a project's manifests: make k8s-render OVERLAY=prod
 	kubectl kustomize $(PROJECT)/deploy/$(OVERLAY)
+
+console-web:        ## Build the console UI into the console package
+	cd services/console/web && npm ci && npm run build
+
+console:            ## Run the console locally (http://localhost:8090, admin@example.com / change-me-locally)
+	SHALF_CONSOLE_CONFIG=services/console/dev/console.dev.yaml uv run shalf-console
+
+console-idp:        ## Run the dev OIDC provider for trying SSO locally (port 9555)
+	uv run python services/console/dev/dev_idp.py
+
+console-e2e:        ## Browser end-to-end test of the console (needs console-web first)
+	uv run --with playwright python services/console/e2e/run_e2e.py

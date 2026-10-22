@@ -23,6 +23,9 @@ class ModelRegistry(ABC):
     @abstractmethod
     def promote(self, name: str, version: str, stage: str) -> ModelArtifact: ...
 
+    @abstractmethod
+    def list(self) -> list[ModelArtifact]: ...
+
 
 model_registry_registry: PluginRegistry[ModelRegistry] = PluginRegistry(
     "model registry", ModelRegistry, entry_point_group="shalf.models.registries"
@@ -69,3 +72,6 @@ class LocalModelRegistry(ModelRegistry):
         artifact = self.get(name, version)
         artifact.stage = stage
         return self.register(artifact)
+
+    def list(self) -> list[ModelArtifact]:
+        return [ModelArtifact(**i) for i in self._load()]

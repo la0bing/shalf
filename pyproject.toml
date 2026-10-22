@@ -49,7 +49,16 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["RUF012"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["shalf", "feature_server", "inference_api"]
+known-first-party = ["shalf", "feature_server", "inference_api", "shalf_console"]
+
+[tool.ruff.lint.per-file-ignores]
+# Embedded HTML/JS snippets.
+"services/console/dev/*" = ["E501"]
+"services/console/e2e/*" = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency declarations are evaluated once on purpose.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "shalf_console.deps.require"]
 
 [tool.mypy]
 python_version = "3.11"

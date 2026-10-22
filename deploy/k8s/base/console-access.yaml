@@ -1,0 +1,33 @@
+# Lets the console (ServiceAccount shalf-console in shalf-system) operate this
+# project's pipelines: read CronJobs, start and read Jobs, read their pods'
+# logs. Nothing else. Delete this from an overlay to opt a project out.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shalf-console
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shalf-console
+subjects:
+  - kind: ServiceAccount
+    name: shalf-console
+    namespace: shalf-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shalf-console

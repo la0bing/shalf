@@ -19,7 +19,7 @@ Configured in the project's ``shalf.yaml``::
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any, Literal
 
@@ -111,12 +111,14 @@ def build_pipeline(
     start: datetime | str | None = None,
     end: datetime | str | None = None,
     promote: bool = False,
+    on_log: Callable[[str], None] | None = None,
 ) -> Pipeline:
     """Steps: ``transform`` (dbt build) -> ``features`` (materialise or backfill).
 
     With ``start``/``end`` the run is a backfill: dbt receives them as
     ``--vars '{start: ..., end: ...}'`` (for incremental models) and the
-    feature views are recomputed over that range.
+    feature views are recomputed over that range. ``on_log`` receives dbt's
+    log lines (for UIs that show run logs).
     """
     pipelines = store.config.pipelines
     if name not in pipelines:
@@ -133,7 +135,7 @@ def build_pipeline(
             raise PipelineError(f"Pipeline {name!r} selects dbt models but `transform` is not set")
         dbt = TransformConfig.model_validate(store.config.transform).dbt(repo_path)
         variables = {k: str(v) for k, v in (("start", start), ("end", end)) if v is not None}
-        result = dbt.build(config.dbt_select, variables or None)
+        result = dbt.build(config.dbt_select, variables or None, on_log)
         if not result.success:
             raise PipelineError(f"dbt build failed: {result.failures}; features not updated")
         log.info("dbt built models: %s", result.models)

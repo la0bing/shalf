@@ -15,6 +15,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: inference-api
+        # The console calls the token-protected admin API (/v1/admin/...).
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: shalf-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shalf-console
       ports:
         - port: 8080
 ---
@@ -32,6 +39,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               shalf.io/eda-access: "true"
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: shalf-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: shalf-console
         - podSelector: {}
       ports:
         - port: 8080

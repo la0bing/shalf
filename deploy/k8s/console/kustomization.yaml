@@ -1,0 +1,25 @@
+# The console: one per cluster, managing every project.
+#   kubectl kustomize deploy/k8s/console
+# Expects a `shalf-console-secrets` Secret in shalf-system with:
+#   SHALF_CONSOLE_DB        postgresql+psycopg://user:pass@host/console
+#   OIDC_CLIENT_SECRET      client secret registered at your identity provider
+#   SHALF_ADMIN_TOKEN       the projects' feature-server admin token
+# Each project grants the console access to its own namespace through the
+# platform base (deploy/k8s/base/console-access.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shalf-system
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shalf
+resources:
+  - namespace.yaml
+  - console.yaml
+configMapGenerator:
+  - name: shalf-console-config
+    files:
+      - console.yaml=config/console.yaml
+images:
+  - name: shalf-console
+    newName: ghcr.io/la0bing/shalf-console
+    newTag: "0.1.0"

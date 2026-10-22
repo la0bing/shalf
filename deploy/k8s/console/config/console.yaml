@@ -1,0 +1,24 @@
+# Console configuration. ${VAR} values come from the shalf-console-secrets Secret.
+base_url: https://shalf.example.com          # public URL; the OIDC redirect is <base_url>/auth/oidc/<id>/callback
+database_url: ${SHALF_CONSOLE_DB}
+cookie_secure: true
+local_login: false                            # SSO only; set true temporarily for break-glass access
+bootstrap_admins: [platform-admin@example.com]
+oidc:
+  - id: corp
+    name: Corp SSO
+    issuer: https://example.okta.com/oauth2/default   # Okta / Entra ID / Google / Keycloak / Dex
+    client_id: shalf-console
+    client_secret: ${OIDC_CLIENT_SECRET}
+    scopes: [openid, email, profile, groups]
+    groups_claim: groups
+    allowed_domains: [example.com]
+projects:
+  - name: quickstart
+    type: remote
+    description: Fraud features
+    serving_url: http://feature-server.shalf.svc.cluster.local
+    eda_url: http://feature-server-eda.shalf.svc.cluster.local
+    admin_token: ${SHALF_ADMIN_TOKEN}
+    pipeline_runner: {type: kubernetes, namespace: shalf}
+model_registry: {type: local, root: /var/lib/shalf-console/models}

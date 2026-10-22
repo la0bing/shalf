@@ -63,3 +63,18 @@ def test_readiness_fails_when_online_store_is_down():
     with TestClient(create_app(store)) as client:
         assert client.get("/healthz").status_code == 200
         assert client.get("/readyz").status_code == 503
+
+
+def test_admin_api_requires_token():
+    store = make_store()
+    with TestClient(create_app(store, admin_token="")) as client:
+        assert client.get("/v1/admin/plan").status_code == 404  # disabled by default
+
+    with TestClient(create_app(store, admin_token="s3cret")) as client:
+        assert client.get("/v1/admin/plan").status_code == 401
+        auth = {"Authorization": "Bearer s3cret"}
+        plan = client.get("/v1/admin/plan", headers=auth).json()
+        assert plan[0]["view"] == "stats" and plan[0]["status"] == "unchanged"
+        assert client.post("/v1/admin/promote", json={"views": None}, headers=auth).json() == {}
+        preview = client.get("/v1/admin/preview/stats", headers=auth).json()
+        assert preview["columns"][-1] == "score" and len(preview["rows"]) == 2

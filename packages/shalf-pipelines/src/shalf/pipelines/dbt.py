@@ -9,13 +9,15 @@ project's warehouse path.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from shalf.core import ShalfError, get_logger
 
 log = get_logger(__name__)
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @dataclass
@@ -41,7 +43,7 @@ class DbtProject:
         self.target_path = target_path
         self.env = dict(env)
 
-    def invoke(self, args: Sequence[str]) -> Any:
+    def invoke(self, args: Sequence[str], on_log: Callable[[str], None] | None = None) -> Any:
         try:
             from dbt.cli.main import dbtRunner
         except ImportError as exc:  # pragma: no cover - depends on optional extra
@@ -60,9 +62,23 @@ class DbtProject:
             common += ["--target", self.target]
         log.info("dbt %s", " ".join(args))
         # Options after the (possibly multi-word, e.g. `docs generate`) command.
-        return dbtRunner().invoke([*args, *common])
+        callbacks: list[Any] = []
+        if on_log is not None:
 
-    def build(self, select: str | None, variables: Mapping[str, Any] | None = None) -> DbtResult:
+            def forward(event: Any) -> None:
+                info = getattr(event, "info", None)
+                if info is not None and info.msg and info.level in ("info", "warn", "error"):
+                    on_log(f"dbt {info.level.upper()} {_ANSI.sub('', info.msg)}")
+
+            callbacks.append(forward)
+        return dbtRunner(callbacks=callbacks).invoke([*args, *common])
+
+    def build(
+        self,
+        select: str | None,
+        variables: Mapping[str, Any] | None = None,
+        on_log: Callable[[str], None] | None = None,
+    ) -> DbtResult:
         if "SHALF_WAREHOUSE_PATH" in self.env:  # dbt-duckdb creates files, not directories
             os.makedirs(self.env["SHALF_WAREHOUSE_PATH"], exist_ok=True)
         args = ["build"]
@@ -72,7 +88,7 @@ class DbtProject:
             import json
 
             args += ["--vars", json.dumps(dict(variables))]
-        result = self.invoke(args)
+        result = self.invoke(args, on_log)
         models, failures = [], []
         for node_result in getattr(result.result, "results", None) or []:
             node, status = node_result.node, str(node_result.status)

@@ -102,6 +102,15 @@ shalf-monitoring ->  shalf-core
 The uv workspace (`pyproject.toml` at the root) installs every package
 editable into one `.venv` for development. `uv.lock` pins the whole graph.
 
+## Console
+
+`services/console` is the platform's UI and control-plane API, deployed once
+per cluster (`deploy/k8s/console`, namespace `shalf-system`). It reaches each
+project through the project's feature-server admin API and its pipeline
+CronJobs. Users sign in with OIDC SSO, and access is role-based: modules
+declare permissions, admins compose custom roles and bind them to users or
+SSO groups, globally or per project. See [console.md](console.md).
+
 ## Runtime topology (Kubernetes)
 
 ```

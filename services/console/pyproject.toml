@@ -1,0 +1,30 @@
+[project]
+name = "shalf-console"
+version = "0.1.0"
+description = "shalf console: web UI + control-plane API with SSO and RBAC"
+requires-python = ">=3.11"
+dependencies = [
+    "shalf-core",
+    "shalf-data",
+    "shalf-models",
+    "shalf-pipelines",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "sqlalchemy>=2.0",
+    "pyjwt[crypto]>=2.8",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1"]
+
+[project.scripts]
+shalf-console = "shalf_console.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shalf_console"]
+

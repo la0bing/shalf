@@ -25,3 +25,8 @@ examples/**/data/
 **/transform/target/
 **/transform/logs/
 **/transform/dbt_packages/
+
+# console: SPA build output (built in CI / the image) and local dev data
+services/console/src/shalf_console/static/
+services/console/web/node_modules/
+/data/

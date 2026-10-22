@@ -25,6 +25,10 @@ spec:
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
   jobTemplate:
+    metadata:
+      labels:  # lets the console list runs (scheduled and manual)
+        app.kubernetes.io/component: pipeline
+        shalf.io/pipeline: hourly
     spec:
       backoffLimit: 1
       activeDeadlineSeconds: 3000
@@ -88,6 +92,10 @@ spec:
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
   jobTemplate:
+    metadata:
+      labels:  # lets the console list runs (scheduled and manual)
+        app.kubernetes.io/component: pipeline
+        shalf.io/pipeline: daily
     spec:
       backoffLimit: 1
       activeDeadlineSeconds: 1500

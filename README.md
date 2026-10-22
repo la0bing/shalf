@@ -5,6 +5,7 @@ monorepo and deployed to Kubernetes.
 
 | Stage            | Package / service                                   | Status        |
 | ---------------- | --------------------------------------------------- | ------------- |
+| Console (UI, SSO, RBAC) | [`services/console`](services/console) · [docs](docs/console.md) | **Implemented** |
 | Data & features  | [`shalf-data`](packages/shalf-data)                 | **Implemented** |
 | Online features  | [`services/feature-server`](services/feature-server) | **Implemented** |
 | Training         | [`shalf-training`](packages/shalf-training)         | Skeleton      |
@@ -37,6 +38,7 @@ make install       # uv sync --all-packages
 make quickstart    # SQLite -> dbt -> features -> training set -> online read
 make test
 make serve-features  # http://localhost:8080/docs
+make console-web && make console   # UI on http://localhost:8090
 uv run python examples/benchmarks/aggregations.py   # DuckDB vs pandas
 ```
 
@@ -55,6 +57,7 @@ services/                 platform services, one base image each
   feature-server/         FastAPI online feature serving
   inference-api/          FastAPI model serving (skeleton)
   platform-jobs/          batch image: dbt-core + dbt-duckdb + pipelines
+  console/                web UI (React, web/) + control-plane API: OIDC SSO, RBAC, audit
 deploy/
   docker/Dockerfile       builds the platform base images
   k8s/base/               generic workloads for one project (image placeholders)
@@ -68,3 +71,4 @@ docs/                     architecture and design docs
 
 - [Architecture](docs/architecture.md): components, how they deploy, how they talk
 - [Data layer](docs/data-layer.md): feature definitions, offline/online semantics, extending it
+- [Console](docs/console.md): modules, SSO, RBAC model, deployment
