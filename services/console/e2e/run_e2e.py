@@ -47,7 +47,9 @@ def serve(app, port: int) -> uvicorn.Server:
     deadline = time.time() + 30
     while not server.started:
         if not thread.is_alive() or time.time() > deadline:
-            raise SystemExit(f"could not start a server on port {port} (in use? e.g. the compose PoC)")
+            raise SystemExit(
+                f"could not start a server on port {port} (in use? e.g. the compose PoC)"
+            )
         time.sleep(0.05)
     return server
 
