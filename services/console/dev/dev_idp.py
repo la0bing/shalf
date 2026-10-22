@@ -2,6 +2,9 @@
 
     uv run python services/console/dev/dev_idp.py            # http://127.0.0.1:9555
 
+Environment: DEV_IDP_ISSUER (the URL browsers *and* the console use),
+DEV_IDP_HOST, DEV_IDP_PORT.
+
 It shows a sign-in form where you type any email and groups, so you can try
 SSO and group-based roles without a real identity provider. Never expose it:
 it signs whatever identity you type.
@@ -117,4 +120,10 @@ input{{padding:8px;font:inherit}}button{{padding:9px;font:inherit;background:#11
 
 
 if __name__ == "__main__":
-    uvicorn.run(create_idp("http://127.0.0.1:9555"), host="127.0.0.1", port=9555)
+    import os
+
+    uvicorn.run(
+        create_idp(os.environ.get("DEV_IDP_ISSUER", "http://127.0.0.1:9555")),
+        host=os.environ.get("DEV_IDP_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DEV_IDP_PORT", "9555")),
+    )

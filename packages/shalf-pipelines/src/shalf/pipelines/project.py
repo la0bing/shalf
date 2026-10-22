@@ -14,13 +14,21 @@ Configured in the project's ``shalf.yaml``::
       hourly:
         dbt_select: "tag:hourly+"     # dbt selection; omit to skip dbt
         views: affected               # affected | all | [view, ...]
+        every: 1h                     # used by `shalf-pipelines schedule` (CronJobs ignore it)
+
+Runs that touch the dbt warehouse take an exclusive file lock on it: dbt-duckdb
+allows a single writer, so a second run waits instead of failing.
 """
 
 from __future__ import annotations
 
+import fcntl
 import os
-from collections.abc import Callable, Sequence
+import time
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -66,6 +74,7 @@ class PipelineConfig(BaseModel):
 
     dbt_select: str | None = None
     views: Literal["affected", "all"] | list[str] = "affected"
+    every: str | None = None  # e.g. "1h"; only used by `shalf-pipelines schedule`
 
 
 def _dbt_sources(view: BaseFeatureView) -> list[DbtModelSource]:
@@ -173,5 +182,37 @@ def build_pipeline(
     return pipeline
 
 
+@contextmanager
+def pipeline_lock(directory: str, *, timeout: float = 3600, poll: float = 1.0) -> Iterator[None]:
+    """Exclusive lock across processes (and containers sharing the volume)."""
+    path = Path(directory) / ".shalf-pipeline.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+") as handle:
+        deadline = time.monotonic() + timeout
+        waiting = False
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if not waiting:
+                    log.info("another pipeline run holds %s; waiting", path)
+                    waiting = True
+                if time.monotonic() > deadline:
+                    raise PipelineError(
+                        f"Timed out after {timeout:.0f}s waiting for {path}"
+                    ) from None
+                time.sleep(poll)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def run_pipeline(store: FeatureStore, repo_path: str, name: str, **kwargs: Any) -> dict[str, Any]:
-    return LocalRunner().run(build_pipeline(store, repo_path, name, **kwargs))
+    pipeline = build_pipeline(store, repo_path, name, **kwargs)
+    warehouse = store.config.transform.get("warehouse_path")
+    if not warehouse:
+        return LocalRunner().run(pipeline)
+    with pipeline_lock(warehouse):
+        return LocalRunner().run(pipeline)

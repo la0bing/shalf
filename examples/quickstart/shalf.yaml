@@ -23,13 +23,17 @@ transform:
 
 # What each scheduled run does: dbt build for the selection, then
 # materialise the feature views reading the rebuilt models (+ dependents).
+# `every` drives `shalf-pipelines schedule` (docker compose); Kubernetes uses
+# the CronJob schedules instead.
 pipelines:
-  hourly:
-    dbt_select: "+tag:hourly"
-    views: affected
   daily:
     dbt_select: "+tag:daily"
     views: affected
+    every: 24h
+  hourly:
+    dbt_select: "+tag:hourly"
+    views: affected
+    every: 1h
 
 # Profiles replace whole sections. The platform's Kubernetes base sets
 # SHALF_PROFILE=serving / batch / eda per workload.

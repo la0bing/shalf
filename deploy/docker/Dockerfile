@@ -40,7 +40,7 @@ USER 10001
 # DuckDB downloads extensions on first use; bake them into the image so pods
 # (read-only root filesystem, often no internet) never need to.
 RUN if [ -n "$DUCKDB_EXTENSIONS" ]; then \
-      python -c "import duckdb, sys; con = duckdb.connect(); [con.install_extension(e) for e in sys.argv[1:]]" $DUCKDB_EXTENSIONS; \
+      python -c "import duckdb, sys; con = duckdb.connect(); [con.install_extension(e, repository_url='https://extensions.duckdb.org') for e in sys.argv[1:]]" $DUCKDB_EXTENSIONS; \
     fi
 EXPOSE 8080
 CMD ["sh", "-c", "exec uvicorn \"$APP_MODULE\" --host 0.0.0.0 --port 8080"]

@@ -6,3 +6,6 @@
 examples/**/data
 docs
 deploy/k8s
+**/node_modules
+services/console/src/shalf_console/static
+data

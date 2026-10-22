@@ -399,6 +399,10 @@ as the deployed code so the versions match.
   of the materialisation schedule.
 - **Late-arriving data.** Rows inserted with old timestamps after a range was
   cached are not picked up until that range is backfilled again.
+- **One pipeline writes at a time.** dbt-duckdb's warehouse file has a
+  single writer, so runs take an exclusive lock on the warehouse directory
+  and queue up. dbt runs in a child process per command, so nothing keeps the
+  file open between runs.
 - **Offline cache storage** is a filesystem path (a ReadWriteMany volume on
   Kubernetes). Object storage (`s3://`, `gs://`) through DuckDB's `httpfs`
   is the natural next step.

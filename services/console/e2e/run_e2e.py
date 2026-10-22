@@ -42,8 +42,12 @@ ADMIN, PASSWORD = "admin@example.com", "e2e-admin-password"
 
 def serve(app, port: int) -> uvicorn.Server:
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    threading.Thread(target=server.run, daemon=True).start()
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 30
     while not server.started:
+        if not thread.is_alive() or time.time() > deadline:
+            raise SystemExit(f"could not start a server on port {port} (in use? e.g. the compose PoC)")
         time.sleep(0.05)
     return server
 

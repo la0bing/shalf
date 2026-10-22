@@ -74,7 +74,10 @@ warehouse. Moving to a warehouse later is a change of dbt target in
 `profiles.yml`.
 
 **Scheduling.** Each pipeline is a Kubernetes CronJob on the project's jobs
-image. Ordering *within* a run (dbt first, then features, stop on failed
+image. Without Kubernetes (docker compose, a VM), `shalf-pipelines schedule`
+runs the pipelines every `every:` from `shalf.yaml`, one at a time. Runs on any
+host take an exclusive lock on the warehouse directory, so a run started from
+the console waits for a scheduled one instead of failing. Ordering *within* a run (dbt first, then features, stop on failed
 tests) is handled by the pipeline itself, so no orchestrator service is
 needed. What CronJobs still don't give you:
 - dependencies *between* schedules (e.g. "hourly waits for daily")

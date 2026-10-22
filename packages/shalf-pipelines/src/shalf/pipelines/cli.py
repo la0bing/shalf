@@ -17,7 +17,9 @@ from pathlib import Path
 
 from shalf.core import configure_logging
 from shalf.data import FeatureStore, FeatureStoreConfig
+from shalf.data.types import parse_duration
 from shalf.pipelines.project import PipelineError, TransformConfig, run_pipeline
+from shalf.pipelines.schedule import run_schedule
 
 
 def load_project_config(repo: str, profile: str | None) -> FeatureStoreConfig:
@@ -38,6 +40,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--start", default=None)
     run.add_argument("--end", default=None)
     run.add_argument("--promote", action="store_true", help="backfills: switch readers at the end")
+    schedule = sub.add_parser("schedule", help="run pipelines periodically (no Kubernetes needed)")
+    schedule.add_argument(
+        "--every",
+        action="append",
+        default=[],
+        metavar="PIPELINE=DURATION",
+        help="override/extend `every:` from shalf.yaml, e.g. hourly=15m (repeatable, ordered)",
+    )
     dbt = sub.add_parser("dbt", help="run a dbt command with the project's settings")
     dbt.add_argument("dbt_args", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -54,6 +64,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.success else 1
 
     store = FeatureStore.from_repo(repo, profile=args.profile)
+    if args.command == "schedule":
+        intervals = {
+            name: spec.get("every")
+            for name, spec in store.config.pipelines.items()
+            if spec and spec.get("every")
+        }
+        for item in args.every:
+            name, _, duration = item.partition("=")
+            intervals[name] = duration
+        run_schedule(store, repo, [(n, parse_duration(d)) for n, d in intervals.items()])
+        return 0
     if args.command == "run":
         try:
             outputs = run_pipeline(

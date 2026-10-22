@@ -6,8 +6,9 @@
 # or delete one they don't use.
 #
 # dbt-duckdb keeps one database file in /data/warehouse that only one writer
-# can open: keep schedules from overlapping (concurrencyPolicy only prevents
-# a CronJob from overlapping with itself).
+# can open. Runs take an exclusive lock on the warehouse directory and wait
+# for each other; that lock relies on the volume supporting file locks
+# (NFSv4 / EFS do). Offset the schedules anyway to avoid queueing.
 #
 # After a feature-logic change the first run builds the new version beside the
 # old one and switches readers over at the end (auto_promote). For long

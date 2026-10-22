@@ -1,0 +1,157 @@
+# shalf proof of concept on one machine.
+#
+#   docker compose -f deploy/compose/docker-compose.yml up -d --build
+#
+#   console        http://localhost:8090   admin@example.com / change-me  (or "Dev SSO")
+#   feature server http://localhost:8080/docs
+#   EDA server     http://localhost:8081/docs
+#
+# Same topology as the Kubernetes deployment, scaled down: Postgres is both the
+# application database (dbt reads it) and the console database; Redis has a
+# read replica for the EDA server; pipelines run on a schedule in one
+# container; everything shares one data volume (dbt warehouse + offline cache).
+name: shalf-poc
+
+x-shalf: &shalf
+  image: shalf-poc:local
+  build:
+    context: ../..
+    dockerfile: deploy/compose/Dockerfile
+  environment: &env
+    SHALF_LOG_LEVEL: INFO
+    SHALF_PG_DSN: postgresql://shalf:shalf@postgres:5432/app
+    SHALF_SOURCE_SCHEMA: public
+    SHALF_DBT_TARGET: prod
+    SHALF_DBT_TARGET_PATH: /tmp/dbt-target
+    SHALF_DBT_MANIFEST: /app/project/transform/target/manifest.json
+    SHALF_WAREHOUSE_PATH: /data/warehouse
+    SHALF_OFFLINE_CACHE: /data/cache
+    SHALF_REDIS_URL: redis://redis:6379/0
+    SHALF_REDIS_REPLICA_URL: redis://redis-replica:6379/0
+    SHALF_ADMIN_TOKEN: ${SHALF_ADMIN_TOKEN:-poc-admin-token}
+  volumes:
+    - shalf-data:/data
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shalf
+      POSTGRES_PASSWORD: shalf
+      POSTGRES_DB: app
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/10-console.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shalf -d app"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis-replica:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--replicaof", "redis", "6379", "--replica-read-only", "yes", "--save", ""]
+    depends_on:
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  # One-off: synthetic data in the application database (skipped once seeded).
+  seed:
+    <<: *shalf
+    command: ["python", "/app/project/seed.py", "--postgres", "postgresql://shalf:shalf@postgres:5432/app", "--if-empty"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  # dbt build -> feature materialisation, on the `every:` intervals in shalf.yaml.
+  pipelines:
+    <<: *shalf
+    command: ["shalf-pipelines", "schedule"]
+    environment:
+      <<: *env
+      SHALF_PROFILE: batch
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  feature-server:
+    <<: *shalf
+    command: ["uvicorn", "feature_server.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *env
+      SHALF_PROFILE: serving
+    ports:
+      - "8080:8080"
+    healthcheck: &http-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/readyz')"]
+      interval: 5s
+      retries: 20
+    depends_on:
+      redis: {condition: service_healthy}
+
+  # Exploration: Redis replica (read-only) + offline cache only, never Postgres.
+  feature-server-eda:
+    <<: *shalf
+    command: ["uvicorn", "feature_server.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *env
+      SHALF_PROFILE: eda
+    volumes:
+      - shalf-data:/data:ro
+    ports:
+      - "8081:8080"
+    healthcheck: *http-health
+    depends_on:
+      redis-replica: {condition: service_started}
+
+  console:
+    <<: *shalf
+    command: ["shalf-console", "--port", "8090"]
+    environment:
+      <<: *env
+      SHALF_CONSOLE_CONFIG: /etc/shalf-console/console.yaml
+      SHALF_CONSOLE_ADMIN_PASSWORD: ${SHALF_CONSOLE_ADMIN_PASSWORD:-change-me}
+    volumes:
+      - shalf-data:/data
+      - ./console.yaml:/etc/shalf-console/console.yaml:ro
+    ports:
+      - "8090:8090"
+      - "9555:9555"  # dev-idp shares this container's network (see below)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/api/health')"]
+      interval: 5s
+      retries: 20
+    depends_on:
+      postgres: {condition: service_healthy}
+      seed: {condition: service_completed_successfully}
+
+  # Dev OIDC provider for trying SSO. It runs in the console's network
+  # namespace so http://localhost:9555 is the same issuer for your browser and
+  # for the console. Replace with your real IdP in console.yaml.
+  dev-idp:
+    <<: *shalf
+    command: ["python", "/app/dev/dev_idp.py"]
+    environment:
+      DEV_IDP_ISSUER: http://localhost:9555
+      DEV_IDP_HOST: 0.0.0.0
+    volumes: []
+    network_mode: "service:console"
+    depends_on:
+      console: {condition: service_started}
+
+volumes:
+  shalf-data:
+  postgres-data:
+  redis-data:

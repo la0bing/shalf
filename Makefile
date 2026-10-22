@@ -6,7 +6,7 @@ IMAGE_REGISTRY ?= ghcr.io/la0bing
 TAG ?= dev
 OVERLAY ?= dev
 
-.PHONY: install lint fmt typecheck test quickstart pipeline serve-features docker-build project-images k8s-render console-web console console-idp console-e2e
+.PHONY: install lint fmt typecheck test quickstart pipeline serve-features docker-build project-images k8s-render console-web console console-idp console-e2e poc-up poc-smoke poc-down
 
 install:            ## Install every workspace package (editable) + dev tools
 	uv sync --all-packages
@@ -58,3 +58,14 @@ console-idp:        ## Run the dev OIDC provider for trying SSO locally (port 95
 
 console-e2e:        ## Browser end-to-end test of the console (needs console-web first)
 	uv run --with playwright python services/console/e2e/run_e2e.py
+
+POC := docker compose -f deploy/compose/docker-compose.yml
+
+poc-up:             ## Docker Compose proof of concept: whole platform on one machine
+	$(POC) up -d --build
+
+poc-smoke:          ## Check the running PoC from the outside (incl. SSO and a pipeline run)
+	python3 deploy/compose/smoke_test.py
+
+poc-down:           ## Stop the PoC (data volumes are kept)
+	$(POC) down
