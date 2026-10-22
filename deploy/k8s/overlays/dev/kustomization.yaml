@@ -10,7 +10,17 @@ configMapGenerator:
     literals:
       - SHALF_LOG_LEVEL=DEBUG
       - SHALF_REDIS_URL=redis://redis:6379/0
+      - SHALF_REDIS_REPLICA_URL=redis://redis-replica:6379/0
 patches:
+  # Single-node dev clusters (kind, minikube) rarely offer ReadWriteMany.
+  - target: {kind: PersistentVolumeClaim, name: shalf-offline-cache}
+    patch: |-
+      - op: replace
+        path: /spec/accessModes
+        value: ["ReadWriteOnce"]
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 5Gi
   - target: {kind: HorizontalPodAutoscaler, name: feature-server}
     patch: |-
       - op: replace

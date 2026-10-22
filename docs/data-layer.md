@@ -15,7 +15,8 @@ top of existing ones.
 | `DataSource`              | Where timestamped rows come from (SQLite, Postgres, CSV/Parquet, DataFrame, yours) |
 | `Entity`                  | What features describe; has one join key (`customer_id`)                         |
 | `FeatureView`             | Typed features read directly from a source, keyed by entities                    |
-| `DerivedFeatureView`      | Batch features computed from other views; chains into a DAG                      |
+| `AggregationFeatureView`  | Windowed aggregates declared with `Aggregate(...)`, computed by DuckDB           |
+| `DerivedFeatureView`      | Batch features computed from other views by your code; chains into a DAG         |
 | `OnDemandFeatureView`     | Features computed at retrieval time, optionally from request data                |
 | `FeatureService`          | The named set of features one model consumes                                     |
 | `FeatureRegistry`         | Validated catalogue of all of the above                                          |
@@ -23,33 +24,64 @@ top of existing ones.
 | `OnlineStore`             | Latest value per entity, for low-latency reads (memory, SQLite, Redis, yours)     |
 | `FeatureStore`            | Facade that ties everything together                                             |
 
+## Writing features
+
+The API is built around what data scientists usually write: typed columns
+from a table, then "function of column over the last N days per entity",
+then a bit of custom pandas.
+
 ```python
-from datetime import timedelta
-from shalf.data import Entity, FeatureView, Field, SQLiteSource, ValueType, derived_feature_view
+from shalf.data import Aggregate, AggregationFeatureView, Entity, FeatureView, SQLiteSource
+from shalf.data import derived_feature_view
 
 customer = Entity(name="customer", join_key="customer_id")
-txns = FeatureView(
+
+transactions = FeatureView(
     name="transactions",
     entities=[customer],
-    ttl=timedelta(days=30),
     online=False,
+    ttl="30d",
     source=SQLiteSource(
         name="txns", path="app.db", table="transactions", timestamp_field="created_at"
     ),
-    schema=[Field("amount", ValueType.FLOAT64), Field("merchant_id", ValueType.INT64)],
+    schema={"amount": float, "merchant_id": int},  # plain Python types
+)
+
+txn_stats = AggregationFeatureView(  # no rolling-window code
+    name="txn_stats",
+    source=transactions,
+    aggregations=[
+        Aggregate("amount", "sum", "7d"),  # -> amount_sum_7d
+        Aggregate("amount", "mean", "30d"),  # -> amount_mean_30d
+        Aggregate(None, "count", "1d"),  # -> count_1d
+        Aggregate("amount", "sum", "7d", where="amount > 100", name="big_spend_7d"),
+    ],
 )
 
 
-@derived_feature_view(
-    sources=[txns], schema=[Field("txn_count_7d", ValueType.INT64)], lookback=timedelta(days=7)
-)
-def txn_stats(df): ...
+@derived_feature_view(sources=[txn_stats], schema={"avg_big_share": float})
+def big_share(df):  # escape hatch: any pandas
+    return df.assign(avg_big_share=df.big_spend_7d / df.amount_sum_7d)
 ```
 
+Conveniences:
+
+- `schema` accepts `{"name": type}` (`int`, `float`, `str`, `bool`,
+  `datetime`), a list of names (float), or `Field` objects for descriptions/tags.
+- Durations accept `"30m"`, `"12h"`, `"7d"`, `"2w"` or `timedelta`.
+- An `AggregationFeatureView` inherits entities from its source, and its
+  `ttl` / `lookback` default to the longest window, so incremental
+  materialisation reads only the history it needs.
+- Window semantics are `(t - window, t]`. Supported functions are `count`,
+  `sum`, `mean`, `min`, `max` and `std`. `where` is a SQL filter over any
+  input column, including columns of views joined in as extra sources.
+- `store.preview("txn_stats")` shows computed rows. `shalf-data plan` shows
+  what a change to the code would trigger (see [Changing feature logic](#changing-feature-logic-backfills)).
+
 [`examples/quickstart/feature_repo/features.py`](../examples/quickstart/feature_repo/features.py)
-is a complete repo: three SQLite tables, a two-upstream derived view, a
-derived-on-derived view, an on-demand view with request data, and a feature
-service.
+is a complete repo: three SQLite tables, declarative aggregations (one of them
+filtering on a point-in-time joined merchant attribute), a derived-on-derived
+view, an on-demand view with request data, and a feature service.
 
 ## Sources
 
@@ -136,10 +168,12 @@ with `pandas.merge_asof`.
 
 ## Materialisation and online retrieval
 
-`materialize(start, end)` writes the latest row per entity in `[start, end)`
-for every view with `online=True`, derived views included, and records a
-per-view **watermark** in the online store. `materialize_incremental()` resumes
-from that watermark. For a first run it starts from `end - ttl`.
+`materialize(start, end)` computes every batch view over `[start, end)` at its
+current version. All rows go to the offline cache, raw-event views included,
+so later reads never have to go back to the source. For `online=True` views,
+the latest row per entity also goes to the online store. A per-version
+**watermark** is recorded. `materialize_incremental()` resumes from that
+watermark. For a first run it starts from `end - ttl`.
 
 Every online store follows the same contract: one record per
 `(project, view, entity key)`, and **a newer event timestamp always wins**, so
@@ -226,23 +260,137 @@ shalf-data --repo PATH materialize --start ... --end ... [--views ...]
 shalf-data --repo PATH materialize-incremental
 shalf-data --repo PATH online --feature-service fraud_model_v1 --entities '{"customer_id":[1]}'
 shalf-data --repo PATH historical --entity-csv spine.csv --feature-service fraud_model_v1 --out train.csv
+shalf-data --repo PATH plan | backfill [--start --end --views --promote] | promote [--views]
+shalf-data --repo PATH --profile eda preview VIEW [--start --end --limit]
 ```
+
+## Performance
+
+| Where the time goes                | What shalf does                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| Windowed aggregations              | One DuckDB window-function query per view: vectorised, multi-threaded, one pass for all `Aggregate`s |
+| Reading sources                    | Projection (only needed columns) and time filters pushed into SQL                   |
+| Recomputing the same history       | Every materialised row lands in the Parquet **offline cache**; training sets, EDA and later backfills read it instead of recomputing |
+| Keeping features fresh             | Incremental materialisation from per-version watermarks; `lookback` bounds the history read |
+| Online reads                       | Key/value lookups only, pipelined per view (Redis); never touches sources           |
+
+`examples/benchmarks/aggregations.py` compares six windowed features
+(count/sum/mean over 1d and 7d) on 2M events and 50k entities against the
+equivalent hand-written pandas `groupby().rolling()` code. On a 4-core
+machine: **pandas 16.6s, shalf 1.5s (11x)**, with identical values.
+
+## Isolation: serving vs. exploration
+
+Online serving must not slow down because someone runs a heavy query in a
+notebook. The data layer splits traffic into separate paths:
+
+```
+                    ┌──────────── serving path ────────────┐
+inference-api ──▶ feature-server ──▶ Redis primary
+                    (priority: shalf-serving, NetworkPolicy: inference-api only)
+
+notebooks ──────▶ feature-server-eda ──▶ Redis replica (read_only)
+   │                (priority: shalf-eda, profile: eda)
+   └──▶ get_historical_features / preview ──▶ Parquet offline cache (cache_only)
+
+materializer / backfills ──▶ source DB *replica* ──▶ cache + Redis primary
+                    (priority: shalf-batch)
+```
+
+- **The online path never reads sources.** It only does key/value lookups
+  (tested in `test_online_reads_never_touch_sources`). Heavy offline queries
+  cannot block it.
+- **Exploration has its own online endpoint.** `feature-server-eda` runs the
+  same image with `SHALF_PROFILE=eda`. It reads a Redis replica through a
+  `read_only` store, runs at the lowest priority class with its own
+  autoscaling range, and a NetworkPolicy keeps exploration clients off the
+  serving pods.
+- **Exploration never hits source databases.** The `eda` profile sets the
+  offline store to `cache_only`, so notebooks read the Parquet cache that
+  materialisation keeps up to date. A range that isn't cached raises
+  `CacheMissError` instead of silently querying production. Derived views
+  can still be computed on the fly from cached upstreams.
+- **Batch work reads replicas.** Point the source DSN (`SHALF_PG_DSN`) at a
+  read replica or the warehouse. Materialisation and backfills run at
+  `shalf-batch` priority, which never preempts serving.
+
+All of this is configuration of the same code. A `shalf.yaml` holds one
+profile per deployment flavour, and `$SHALF_PROFILE` picks one. Environment
+variables are only resolved for the profile actually used.
+
+```yaml
+profiles:
+  eda:
+    offline_store: {type: pandas, cache_path: /cache, cache_only: true}
+    online_store: {type: redis, url: "${SHALF_REDIS_REPLICA_URL}", read_only: true}
+```
+
+## Changing feature logic: backfills
+
+Every batch view has a **version**: a fingerprint of the logic that produces
+its values. It covers the source table or query, column mapping, schema,
+transformation code (decorators excluded) or `Aggregate` definitions, and
+the versions of its upstream views. Connection details (paths, DSNs) are not
+part of it, so dev and prod agree. A change therefore re-versions the view
+**and everything downstream of it**. When the logic depends on something the
+fingerprint can't see, such as a helper function, set `version="2"` on the
+view and bump it by hand.
+
+Values are stored per version: online in a namespace `view@version`, offline
+in `cache/<view>/<version>/`. Readers follow each view's **active version**
+pointer, so old and new logic never mix:
+
+```bash
+shalf-data plan                     # status per view: new / unchanged / changed,
+                                    # plus the feature services (models) affected
+shalf-data backfill --start 2024-01-01          # recompute changed views + dependents
+shalf-data preview customer_txn_stats           # check the new values
+shalf-data promote                  # switch readers to the new versions together
+```
+
+- **Before promotion** serving keeps returning the old version's values.
+  Promotion is one metadata write per view. Feature servers pick it up within
+  `version_cache_seconds` (default 10s) without a restart.
+- **Training is correct immediately.** `get_historical_features` uses the
+  code's version. When that version isn't cached yet it is computed from the
+  upstream views, preferring their cached rows. The backfill only makes it
+  fast.
+- **Without a manual step** (`auto_promote: true`, the default), the first
+  `materialize-incremental` run after a deploy warms the new version (from
+  `now - ttl`, or the full history without a ttl) and promotes it when the run
+  completes. Readers see old values until then and new values afterwards.
+  Set `auto_promote: false` to review before switching. The old version then
+  goes stale until promotion, because the old code is no longer deployed. Run
+  the old image's materialiser side by side if that matters.
+- **Models.** `plan` lists the feature services that read a changed view.
+  A model trained on the old logic should be retrained on the new version
+  before (or as) it is promoted.
+- Old versions stay in the cache and online store until removed. Garbage
+  collection is not implemented yet.
+
+On Kubernetes, `deploy/k8s/jobs/backfill.yaml` is a one-off Job template for
+long backfills. It uses the same image tag as the deployed code, so its
+versions match.
 
 ## Known limitations / next steps
 
-- **Scale of the offline store.** `PandasOfflineStore` works in memory. Next: an
-  offline store that pushes the point-in-time join down to the warehouse as
-  SQL (`ASOF JOIN` / window functions), and a Spark/Ray one.
+- **Scale of the offline store.** Aggregations are vectorised (DuckDB), but
+  the point-in-time join and custom transformations run in one process.
+  Next: push the whole retrieval down to the warehouse as SQL, or run it on
+  Spark/Ray.
 - **Rolling windows are event driven.** A 7-day count is as of the entity's
   last event. It does not decay without new events, except through the
-  view's `ttl`.
+  view's `ttl`. Tiled aggregates (partial aggregates per time bucket,
+  combined at read time) would fix this and make online freshness independent
+  of the materialisation schedule.
+- **Late-arriving data.** Rows inserted with old timestamps after a range was
+  cached are not picked up until that range is backfilled again.
+- **Offline cache storage** is a filesystem path (a ReadWriteMany volume on
+  Kubernetes). Object storage (`s3://`, `gs://`) through DuckDB's `httpfs`
+  is the natural next step.
 - **Online value encoding** is JSON. Timestamps come back as ISO strings.
-  A typed codec (msgpack/Arrow) is a natural extension point.
-- **The registry is code-first and in memory**, rebuilt in each process. A
-  persisted registry (for UI/lineage and change review) can sit behind the
-  same `FeatureRegistry` API.
-- **Postgres** shares the SQL code path that is tested on SQLite, but the
-  query builder is only unit-tested here. Add a Postgres service container
-  in CI for an integration test.
-- **Streaming / push ingestion** (Kafka → online store) and data-quality
-  validation hooks are not implemented yet.
+- **The registry is code-first and in memory**, rebuilt in each process.
+- **Postgres** shares the SQL code path tested on SQLite, but the query
+  builder is only unit-tested here. Redis is tested against fakeredis.
+- **Streaming / push ingestion** (Kafka → online store), data-quality hooks
+  and garbage collection of old versions are not implemented yet.

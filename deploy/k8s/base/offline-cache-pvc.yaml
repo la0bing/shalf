@@ -1,0 +1,12 @@
+# Shared Parquet feature cache: the materialiser writes it, the EDA feature
+# server and notebooks read it (so exploration never queries source DBs).
+# Needs a ReadWriteMany storage class (EFS, Filestore, Azure Files, NFS...).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shalf-offline-cache
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 50Gi

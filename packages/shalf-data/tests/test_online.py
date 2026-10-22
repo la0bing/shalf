@@ -41,16 +41,30 @@ def make_view(df: pd.DataFrame, ttl=None) -> FeatureView:
 
 
 def test_newer_values_win(online_store):
-    view = make_view(pd.DataFrame({"customer_id": [], "score": [], "segment": [], "ts": []}))
     now = utcnow()
     key = serialize_entity_key({"customer_id": 1})
-    online_store.write_records(view, [OnlineRecord(key, {"score": 2.0}, now)])
-    online_store.write_records(view, [OnlineRecord(key, {"score": 1.0}, now - timedelta(hours=1))])
-    assert online_store.read_records(view, [key, "missing"])[0].values == {"score": 2.0}
-    assert online_store.read_records(view, [key, "missing"])[1] is None
+    online_store.write_records("stats@v1", [OnlineRecord(key, {"score": 2.0}, now)])
+    online_store.write_records(
+        "stats@v1", [OnlineRecord(key, {"score": 1.0}, now - timedelta(hours=1))]
+    )
+    assert online_store.read_records("stats@v1", [key, "missing"])[0].values == {"score": 2.0}
+    assert online_store.read_records("stats@v1", [key, "missing"])[1] is None
+    assert online_store.read_records("stats@v2", [key]) == [None]  # versions are isolated
 
-    online_store.set_watermark("stats", now)
-    assert online_store.get_watermark("stats") == now.floor("us")
+    online_store.set_watermark("stats", "v1", now)
+    assert online_store.get_watermark("stats", "v1") == now.floor("us")
+    assert online_store.get_watermark("stats", "v2") is None
+    online_store.set_active_version("stats", "v1")
+    assert online_store.get_active_version("stats") == "v1"
+
+
+def test_read_only_store_refuses_writes(tmp_path):
+    store = SQLiteOnlineStore(path=tmp_path / "o.db", read_only=True)
+    view = make_view(pd.DataFrame({"customer_id": [], "score": [], "segment": [], "ts": []}))
+    with pytest.raises(PermissionError):
+        store.write_frame(view, pd.DataFrame(), "v1")
+    with pytest.raises(PermissionError):
+        store.set_active_version("stats", "v1")
 
 
 def test_materialize_and_read(online_store):

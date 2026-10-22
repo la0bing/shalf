@@ -14,6 +14,10 @@ Add a new engine (polars, SQL, Spark, ...) by subclassing
 
 from __future__ import annotations
 
+import hashlib
+import inspect
+import re
+import textwrap
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, ClassVar
@@ -39,6 +43,27 @@ class Transformation(ABC):
 
     def describe(self) -> dict[str, Any]:
         return {"mode": self.mode, "function": f"{self.fn.__module__}.{self.name}"}
+
+    def fingerprint(self) -> dict[str, Any]:
+        """What determines this transformation's output; feeds the view version."""
+        return {"mode": self.mode, "code": function_fingerprint(self.fn)}
+
+
+_DEF_LINE = re.compile(r"^(async\s+)?def\s", re.MULTILINE)
+
+
+def function_fingerprint(fn: Callable[..., Any]) -> str:
+    """Hash of a function's body (decorators excluded, so editing e.g. a ttl in
+    the decorator does not count as a logic change)."""
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+        match = _DEF_LINE.search(source)
+        source = source[match.start() :] if match else source
+        payload = source.strip().encode()
+    except (OSError, TypeError):  # no source available (e.g. defined in a REPL)
+        code = fn.__code__
+        payload = code.co_code + repr(code.co_consts).encode()
+    return hashlib.sha256(payload).hexdigest()[:16]
 
 
 transformation_registry: PluginRegistry[Transformation] = PluginRegistry(

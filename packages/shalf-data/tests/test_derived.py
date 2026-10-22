@@ -170,7 +170,7 @@ def test_incremental_materialisation_with_lookback_matches_full(orders, ts):
     view = full.registry.get_view("rolling")
     keys = ['[["customer_id",1]]', '[["customer_id",2]]']
     assert (
-        [r.values for r in full.online_store.read_records(view, keys)]
-        == [r.values for r in incremental.online_store.read_records(view, keys)]
+        [r.values for r in full.online_store.read(view, keys, view.version)]
+        == [r.values for r in incremental.online_store.read(view, keys, view.version)]
         == [{"amount_6h": 30.0}, {"amount_6h": 5.0}]
     )

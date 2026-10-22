@@ -38,11 +38,11 @@ def interpolate_env(value: Any) -> Any:
     return value
 
 
-def load_yaml(path: str | Path) -> dict[str, Any]:
+def load_yaml(path: str | Path, *, interpolate: bool = True) -> dict[str, Any]:
     path = Path(path)
     if not path.is_file():
         raise ConfigError(f"Config file not found: {path}")
     data = yaml.safe_load(path.read_text()) or {}
     if not isinstance(data, dict):
         raise ConfigError(f"Config file {path} must contain a mapping at the top level")
-    return interpolate_env(data)
+    return interpolate_env(data) if interpolate else data

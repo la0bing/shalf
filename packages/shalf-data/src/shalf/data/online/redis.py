@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Any
 
-import pandas as pd
-
-from shalf.data.feature_view import BaseFeatureView
 from shalf.data.online.base import (
     OnlineRecord,
     OnlineStore,
@@ -62,30 +60,30 @@ class RedisOnlineStore(OnlineStore):
     def ping(self) -> None:
         self.client.ping()
 
-    def _key(self, view_name: str, entity_key: str) -> str:
-        return f"shalf:{self.project}:{view_name}:{entity_key}"
+    def _key(self, namespace: str, entity_key: str) -> str:
+        return f"shalf:{self.project}:{namespace}:{entity_key}"
 
-    def write_records(self, view: BaseFeatureView, records: Sequence[OnlineRecord]) -> int:
+    def write_records(
+        self, namespace: str, records: Sequence[OnlineRecord], ttl: timedelta | None = None
+    ) -> int:
         if self._script is None:
             self._script = self.client.register_script(_WRITE_SCRIPT)
         pipe = self.client.pipeline(transaction=False)
         for record in records:
             expire_at = 0
-            if view.ttl is not None:
-                expire_at = int((record.event_timestamp + view.ttl).value // 1_000_000)
+            if ttl is not None:
+                expire_at = int((record.event_timestamp + ttl).value // 1_000_000)
             self._script(
-                keys=[self._key(view.name, record.entity_key)],
+                keys=[self._key(namespace, record.entity_key)],
                 args=[encode_values(record.values), to_micros(record.event_timestamp), expire_at],
                 client=pipe,
             )
         return int(sum(pipe.execute()))
 
-    def read_records(
-        self, view: BaseFeatureView, entity_keys: Sequence[str]
-    ) -> list[OnlineRecord | None]:
+    def read_records(self, namespace: str, entity_keys: Sequence[str]) -> list[OnlineRecord | None]:
         pipe = self.client.pipeline(transaction=False)
         for key in entity_keys:
-            pipe.hgetall(self._key(view.name, key))
+            pipe.hgetall(self._key(namespace, key))
         results: list[OnlineRecord | None] = []
         for key, raw in zip(entity_keys, pipe.execute(), strict=True):
             if not raw:
@@ -95,15 +93,15 @@ class RedisOnlineStore(OnlineStore):
             results.append(OnlineRecord(key, decode_values(raw["payload"]), from_micros(raw["ts"])))
         return results
 
-    def _watermark_key(self, view_name: str) -> str:
-        return f"shalf:{self.project}:__watermark__:{view_name}"
+    def _metadata_key(self, key: str) -> str:
+        return f"shalf:{self.project}:__meta__:{key}"
 
-    def get_watermark(self, view_name: str) -> pd.Timestamp | None:
-        value = self.client.get(self._watermark_key(view_name))
-        return from_micros(value) if value is not None else None
+    def get_metadata(self, key: str) -> str | None:
+        value = self.client.get(self._metadata_key(key))
+        return value.decode() if isinstance(value, bytes) else value
 
-    def set_watermark(self, view_name: str, value: pd.Timestamp) -> None:
-        self.client.set(self._watermark_key(view_name), to_micros(value))
+    def set_metadata(self, key: str, value: str) -> None:
+        self.client.set(self._metadata_key(key), value)
 
     def teardown(self) -> None:
         for key in self.client.scan_iter(match=f"shalf:{self.project}:*"):

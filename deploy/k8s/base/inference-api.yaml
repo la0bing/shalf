@@ -16,6 +16,7 @@ spec:
         app.kubernetes.io/name: inference-api
     spec:
       serviceAccountName: shalf
+      priorityClassName: shalf-serving
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001

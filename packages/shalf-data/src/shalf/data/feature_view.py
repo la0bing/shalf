@@ -9,10 +9,19 @@ Three kinds of views, all sharing :class:`BaseFeatureView`:
 * :class:`OnDemandFeatureView` - features computed at retrieval time from other
   views plus request-time data (e.g. the amount of the transaction being
   scored). Never materialised.
+
+(:class:`~shalf.data.aggregations.AggregationFeatureView` is a derived view
+whose logic is declared as windowed aggregates instead of code.)
+
+Every view has a ``version``: a fingerprint of the logic that produces its
+values (source/query, transformation code, schema and upstream versions).
+Changing the logic changes the version, which is what drives backfills.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any
@@ -20,7 +29,7 @@ from typing import Any
 from shalf.data.entity import Entity
 from shalf.data.sources.base import DataSource
 from shalf.data.transformations import Transformation, transformation_registry
-from shalf.data.types import Field
+from shalf.data.types import Field, SchemaLike, normalize_schema, parse_duration
 
 
 class BaseFeatureView:
@@ -30,14 +39,16 @@ class BaseFeatureView:
         self,
         *,
         name: str,
-        schema: Sequence[Field],
+        schema: SchemaLike,
         entities: Sequence[Entity] | None = None,
-        ttl: timedelta | None = None,
+        ttl: timedelta | str | None = None,
         online: bool = True,
+        version: str | None = None,
         description: str = "",
         owner: str = "",
         tags: Mapping[str, str] | None = None,
     ) -> None:
+        schema = normalize_schema(schema)
         if not schema:
             raise ValueError(f"Feature view {name!r} must declare at least one feature")
         names = [f.name for f in schema]
@@ -46,8 +57,9 @@ class BaseFeatureView:
         self.name = name
         self.schema = list(schema)
         self.entities: list[Entity] = list(entities or [])
-        self.ttl = ttl
+        self.ttl = parse_duration(ttl)
         self.online = online
+        self.explicit_version = version
         self.description = description
         self.owner = owner
         self.tags = dict(tags or {})
@@ -75,6 +87,29 @@ class BaseFeatureView:
                 return f
         raise KeyError(f"Feature view {self.name!r} has no feature {name!r}")
 
+    # -- versioning ----------------------------------------------------------
+    @property
+    def version(self) -> str:
+        """Fingerprint of the logic producing this view's values.
+
+        Pass ``version="..."`` explicitly when the logic depends on something
+        the fingerprint cannot see (e.g. a helper function the transformation
+        calls); bump it to force a backfill.
+        """
+        if self.explicit_version is not None:
+            return str(self.explicit_version)
+        logic = {
+            "kind": self.kind,
+            "keys": self.join_keys,
+            "schema": [(f.name, f.dtype.value) for f in self.schema],
+            **self._logic(),
+        }
+        digest = hashlib.sha256(json.dumps(logic, sort_keys=True, default=str).encode())
+        return digest.hexdigest()[:10]
+
+    def _logic(self) -> dict[str, Any]:
+        return {}
+
     # -- references ----------------------------------------------------------
     def ref(self, feature: str) -> str:
         self.field(feature)
@@ -95,6 +130,7 @@ class BaseFeatureView:
             "features": [f.to_dict() for f in self.schema],
             "ttl_seconds": self.ttl.total_seconds() if self.ttl else None,
             "online": self.online,
+            "version": self.version,
             "upstream": [u if isinstance(u, str) else u.name for u in self.upstream],
             "description": self.description,
             "owner": self.owner,
@@ -113,6 +149,9 @@ class FeatureView(BaseFeatureView):
             raise ValueError("A FeatureView needs at least one entity")
         super().__init__(entities=entities, **kwargs)
         self.source = source
+
+    def _logic(self) -> dict[str, Any]:
+        return {"source": self.source.fingerprint()}
 
     def describe(self) -> dict[str, Any]:
         return {**super().describe(), "source": self.source.describe()}
@@ -152,6 +191,14 @@ class _TransformedView(BaseFeatureView):
             )
         return self.sources  # type: ignore[return-value]
 
+    def _logic(self) -> dict[str, Any]:
+        return {
+            "transformation": self.transformation.fingerprint(),
+            "upstream": [
+                u if isinstance(u, str) else f"{u.name}@{u.version}" for u in self.sources
+            ],
+        }
+
     def describe(self) -> dict[str, Any]:
         return {**super().describe(), "transformation": self.transformation.describe()}
 
@@ -182,11 +229,11 @@ class DerivedFeatureView(_TransformedView):
         *,
         name: str,
         sources: Sequence[BaseFeatureView | str],
-        schema: Sequence[Field],
+        schema: SchemaLike,
         transformation: Transformation,
         entities: Sequence[Entity] | None = None,
-        ttl: timedelta | None = None,
-        lookback: timedelta | None = None,
+        ttl: timedelta | str | None = None,
+        lookback: timedelta | str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -198,7 +245,7 @@ class DerivedFeatureView(_TransformedView):
             ttl=ttl,
             **kwargs,
         )
-        self.lookback = lookback
+        self.lookback = parse_duration(lookback)
         # Unless given explicitly, entities and ttl follow the primary upstream.
         self._inherit_entities = entities is None
         self._inherit_ttl = ttl is None
@@ -236,16 +283,16 @@ class OnDemandFeatureView(_TransformedView):
         *,
         name: str,
         sources: Sequence[BaseFeatureView | str],
-        schema: Sequence[Field],
+        schema: SchemaLike,
         transformation: Transformation,
-        request_schema: Sequence[Field] = (),
+        request_schema: SchemaLike = (),
         **kwargs: Any,
     ) -> None:
         kwargs.setdefault("online", False)
         super().__init__(
             name=name, sources=sources, schema=schema, transformation=transformation, **kwargs
         )
-        self.request_schema = list(request_schema)
+        self.request_schema = normalize_schema(request_schema)
         self._inherit_entities = not self.entities
         self._collect_entities()
 
@@ -267,6 +314,12 @@ class OnDemandFeatureView(_TransformedView):
     def materializable(self) -> bool:
         return False
 
+    def _logic(self) -> dict[str, Any]:
+        return {
+            **super()._logic(),
+            "request": [(f.name, f.dtype.value) for f in self.request_schema],
+        }
+
     def describe(self) -> dict[str, Any]:
         return {**super().describe(), "request_schema": [f.to_dict() for f in self.request_schema]}
 
@@ -278,14 +331,14 @@ def _make_transformation(fn: Callable[..., Any], mode: str) -> Transformation:
 def derived_feature_view(
     *,
     sources: Sequence[BaseFeatureView | str],
-    schema: Sequence[Field],
+    schema: SchemaLike,
     name: str | None = None,
     mode: str = "pandas",
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], DerivedFeatureView]:
     """Decorator form of :class:`DerivedFeatureView`::
 
-    @derived_feature_view(sources=[txn_stats], schema=[Field("avg_amount")])
+    @derived_feature_view(sources=[txn_stats], schema={"avg_amount": float})
     def customer_avg(df):
         return df.assign(avg_amount=df.total_amount / df.txn_count)
     """
@@ -306,8 +359,8 @@ def derived_feature_view(
 def on_demand_feature_view(
     *,
     sources: Sequence[BaseFeatureView | str],
-    schema: Sequence[Field],
-    request_schema: Sequence[Field] = (),
+    schema: SchemaLike,
+    request_schema: SchemaLike = (),
     name: str | None = None,
     mode: str = "pandas",
     **kwargs: Any,

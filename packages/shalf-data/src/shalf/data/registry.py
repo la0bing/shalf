@@ -160,6 +160,17 @@ class FeatureRegistry:
             visit(name)
         return [v for v in self.list_views() if v.name in needed]
 
+    def dependents(self, view_name: str) -> list[BaseFeatureView]:
+        """Every view downstream of ``view_name``, in dependency order."""
+        affected = {view_name}
+        result = []
+        for view in self.list_views():
+            names = {u if isinstance(u, str) else u.name for u in view.upstream}
+            if names & affected:
+                affected.add(view.name)
+                result.append(view)
+        return result
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "project": self.project,

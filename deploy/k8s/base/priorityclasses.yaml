@@ -1,0 +1,24 @@
+# Online serving must win every scheduling/eviction contest against batch and
+# exploration work running in the same cluster.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: shalf-serving
+value: 100000
+description: Online feature serving and model inference.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: shalf-batch
+value: 1000
+preemptionPolicy: Never
+description: Materialisation and backfills. Never preempts serving pods.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: shalf-eda
+value: 100
+preemptionPolicy: Never
+description: Exploration (EDA feature server, notebooks). First to be evicted.

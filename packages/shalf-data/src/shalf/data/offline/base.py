@@ -52,14 +52,26 @@ class OfflineStore(ABC):
         """All rows of a view with event time in ``[start, end)``: join keys,
         ``event_timestamp`` and every feature of the view."""
 
+    def write_cache(  # noqa: B027 - optional hook
+        self,
+        view: BaseFeatureView,
+        df: pd.DataFrame,
+        start: pd.Timestamp | None,
+        end: pd.Timestamp,
+    ) -> None:
+        """Persist rows computed for ``[start, end)`` (materialisation/backfill output)."""
+
     def pull_latest(
         self, view: BaseFeatureView, start: pd.Timestamp | None, end: pd.Timestamp | None
     ) -> pd.DataFrame:
         """Latest row per entity in ``[start, end)``; the input of materialisation."""
-        df = self.read_view(view, start, end)
-        order = [EVENT_TIMESTAMP] + ([CREATED_TIMESTAMP] if CREATED_TIMESTAMP in df else [])
-        df = df.sort_values(order, kind="stable")
-        return df.drop_duplicates(subset=view.join_keys, keep="last").reset_index(drop=True)
+        return latest_per_entity(view, self.read_view(view, start, end))
+
+
+def latest_per_entity(view: BaseFeatureView, df: pd.DataFrame) -> pd.DataFrame:
+    order = [EVENT_TIMESTAMP] + ([CREATED_TIMESTAMP] if CREATED_TIMESTAMP in df else [])
+    df = df.sort_values(order, kind="stable")
+    return df.drop_duplicates(subset=view.join_keys, keep="last").reset_index(drop=True)
 
 
 offline_store_registry: PluginRegistry[OfflineStore] = PluginRegistry(

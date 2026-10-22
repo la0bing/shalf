@@ -78,5 +78,8 @@ class SQLDataSource(DataSource):
                 cursor.close()
         return pd.DataFrame.from_records(rows, columns=names)
 
+    def fingerprint(self) -> dict[str, Any]:
+        return {**super().fingerprint(), "table": self.table, "query": self.query}
+
     def describe(self) -> dict[str, Any]:
         return {**super().describe(), "table": self.table, "query": self.query}

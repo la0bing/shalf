@@ -9,7 +9,11 @@ labels:
 resources:
   - namespace.yaml
   - serviceaccount.yaml
+  - priorityclasses.yaml
+  - offline-cache-pvc.yaml
+  - networkpolicies.yaml
   - feature-server.yaml
+  - feature-server-eda.yaml
   - materializer-cronjob.yaml
   - inference-api.yaml
 configMapGenerator:

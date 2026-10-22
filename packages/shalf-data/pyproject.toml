@@ -7,6 +7,7 @@ dependencies = [
     "shalf-core",
     "pandas>=2.1",
     "numpy>=1.26",
+    "duckdb>=1.1",
 ]
 
 [project.optional-dependencies]

@@ -11,6 +11,7 @@ Typical feature repository::
                         schema=[Field("amount", ValueType.FLOAT64)])
 """
 
+from shalf.data.aggregations import Aggregate, AggregationFeatureView
 from shalf.data.config import FeatureStoreConfig
 from shalf.data.entity import Entity
 from shalf.data.feature_service import FeatureService
@@ -52,6 +53,8 @@ from shalf.data.types import CREATED_TIMESTAMP, EVENT_TIMESTAMP, Field, ValueTyp
 __all__ = [
     "CREATED_TIMESTAMP",
     "EVENT_TIMESTAMP",
+    "Aggregate",
+    "AggregationFeatureView",
     "BaseFeatureView",
     "DataFrameSource",
     "DataSource",

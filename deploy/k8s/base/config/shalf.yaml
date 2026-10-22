@@ -4,6 +4,19 @@ definitions:
   - features.py
 offline_store:
   type: pandas
+  cache_path: /cache
 online_store:
   type: redis
   url: ${SHALF_REDIS_URL}
+
+profiles:
+  # feature-server-eda and notebooks: Redis replica (read-only), cache only.
+  eda:
+    offline_store:
+      type: pandas
+      cache_path: /cache
+      cache_only: true
+    online_store:
+      type: redis
+      url: ${SHALF_REDIS_REPLICA_URL}
+      read_only: true

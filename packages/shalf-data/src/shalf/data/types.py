@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -23,6 +25,18 @@ class ValueType(StrEnum):
     BOOL = "bool"
     TIMESTAMP = "timestamp"
 
+    @classmethod
+    def of(cls, value: ValueType | type | str) -> ValueType:
+        """Accept a ValueType, a Python type (``int``, ``str``...) or a name (``"float64"``)."""
+        if isinstance(value, ValueType):
+            return value
+        if isinstance(value, str):
+            return cls(value)
+        try:
+            return _PYTHON_TYPES[value]
+        except KeyError:
+            raise TypeError(f"Cannot map {value!r} to a ValueType") from None
+
     def coerce(self, value: Any) -> Any:
         """Coerce a scalar (e.g. an entity key arriving as JSON) to this type."""
         if value is None:
@@ -39,6 +53,15 @@ class ValueType(StrEnum):
             return bool(value)
         return as_utc_datetime(value)
 
+
+_PYTHON_TYPES: dict[Any, ValueType] = {
+    int: ValueType.INT64,
+    float: ValueType.FLOAT64,
+    str: ValueType.STRING,
+    bool: ValueType.BOOL,
+    datetime: ValueType.TIMESTAMP,
+    date: ValueType.TIMESTAMP,
+}
 
 _PANDAS_DTYPES = {
     ValueType.INT64: "Int64",
@@ -66,6 +89,39 @@ class Field:
 
     def to_dict(self) -> dict[str, Any]:
         return {"name": self.name, "dtype": self.dtype.value, "description": self.description}
+
+
+SchemaLike = Sequence["Field | str"] | Mapping[str, "ValueType | type | str"]
+
+
+def normalize_schema(schema: SchemaLike) -> list[Field]:
+    """``[Field(...)]``, ``["a", "b"]`` (float64) or ``{"age": int, "country": str}``."""
+    if isinstance(schema, Mapping):
+        return [Field(name, ValueType.of(dtype)) for name, dtype in schema.items()]
+    return [f if isinstance(f, Field) else Field(f) for f in schema]
+
+
+_DURATION = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(s|m|h|d|w)\s*$")
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def parse_duration(value: timedelta | str | None) -> timedelta | None:
+    """``"30m"``, ``"12h"``, ``"7d"``, ``"2w"`` or a timedelta."""
+    if value is None or isinstance(value, timedelta):
+        return value
+    match = _DURATION.match(value)
+    if not match:
+        raise ValueError(f"Invalid duration {value!r}; use e.g. '30m', '12h', '7d', '2w'")
+    return timedelta(seconds=float(match.group(1)) * _UNIT_SECONDS[match.group(2)])
+
+
+def format_duration(value: timedelta) -> str:
+    """Shortest exact form in d/h/m/s: 7 days -> "7d", 90 minutes -> "90m"."""
+    seconds = int(value.total_seconds())
+    for unit in ("d", "h", "m"):
+        if seconds % _UNIT_SECONDS[unit] == 0:
+            return f"{seconds // _UNIT_SECONDS[unit]}{unit}"
+    return f"{seconds}s"
 
 
 def to_utc(values: pd.Series, unit: str | None = None) -> pd.Series:

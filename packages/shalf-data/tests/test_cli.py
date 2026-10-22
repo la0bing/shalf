@@ -48,3 +48,48 @@ def test_cli_end_to_end(tmp_path, db_path, capsys):
         ]
     )
     assert "gold" in out.read_text()
+
+
+def test_cli_logic_change_rollout(tmp_path, db_path, capsys):
+    import sys
+
+    (tmp_path / "shalf.yaml").write_text(
+        "project: rollout\ndefinitions: defs_rollout.py\n"
+        "online_store: {type: sqlite, path: online.db}\n"
+        "offline_store: {type: pandas, cache_path: cache}\n"
+    )
+
+    def write_defs(where: str) -> None:
+        sys.modules.pop("defs_rollout", None)  # each CLI run is a fresh process in real life
+        (tmp_path / "defs_rollout.py").write_text(
+            textwrap.dedent(
+                f"""
+                from shalf.data import Entity, FeatureView, SQLiteSource
+                customer = Entity(name="customer", join_key="customer_id")
+                credit = FeatureView(
+                    name="credit", entities=[customer], schema={{"credit": float}},
+                    source=SQLiteSource(
+                        name="p", path={str(db_path)!r}, timestamp_field="updated_at",
+                        query="SELECT * FROM profiles {where}",
+                    ),
+                )
+                """
+            )
+        )
+
+    def run(*args: str):
+        capsys.readouterr()
+        assert main(["--repo", str(tmp_path), *args]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    write_defs("")
+    run("materialize", "--end", "2024-01-02T00:00:00+00:00")
+    assert [r["status"] for r in run("plan")] == ["unchanged"]
+
+    write_defs("WHERE tier != 'gold'")  # logic change
+    assert [r["status"] for r in run("plan")] == ["changed"]
+    assert run("backfill", "--end", "2024-01-02T00:00:00+00:00") == {"credit": 2}
+    assert [r["status"] for r in run("plan")] == ["changed"]  # not promoted yet
+    assert list(run("promote")) == ["credit"]
+    assert [r["status"] for r in run("plan")] == ["unchanged"]
+    assert len(list((tmp_path / "cache" / "credit").iterdir())) == 2  # both versions kept

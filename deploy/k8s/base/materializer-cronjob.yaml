@@ -1,6 +1,12 @@
-# Batch side of the data layer: moves the latest feature values from the
-# offline sources into the online store. Same image as the feature server, so
-# both always run the same feature definitions.
+# Batch side of the data layer: computes features from the sources (ideally
+# a read replica / warehouse, via SHALF_PG_DSN), writes every row to the
+# offline cache and the latest values to the online store. Same image as the
+# feature server, so both always run the same feature definitions.
+#
+# When a view's logic changed, the first run after the deploy builds the new
+# version beside the old one and switches readers over at the end
+# (auto_promote). For long histories run a backfill Job first: see
+# deploy/k8s/jobs/backfill.yaml.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -22,6 +28,7 @@ spec:
             app.kubernetes.io/name: feature-materializer
         spec:
           serviceAccountName: shalf
+          priorityClassName: shalf-batch
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
@@ -53,11 +60,16 @@ spec:
                 - name: config
                   mountPath: /etc/shalf
                   readOnly: true
+                - name: offline-cache
+                  mountPath: /cache
                 - name: tmp
                   mountPath: /tmp
           volumes:
             - name: config
               configMap:
                 name: shalf-feature-store-config
+            - name: offline-cache
+              persistentVolumeClaim:
+                claimName: shalf-offline-cache
             - name: tmp
               emptyDir: {}

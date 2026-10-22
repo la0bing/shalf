@@ -1,0 +1,46 @@
+# One-off backfill after a feature-logic change. Not part of the overlays;
+# run on demand:
+#   shalf-data plan                     # see which views changed (locally or in a pod)
+#   kubectl -n shalf create -f deploy/k8s/jobs/backfill.yaml
+# then, once the new values look right (or add --promote to args):
+#   kubectl -n shalf exec deploy/feature-server -- shalf-data promote
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: feature-backfill-
+  labels:
+    app.kubernetes.io/name: feature-backfill
+    app.kubernetes.io/part-of: shalf
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: shalf
+      priorityClassName: shalf-batch
+      restartPolicy: Never
+      containers:
+        - name: backfill
+          image: ghcr.io/la0bing/shalf-feature-server:0.1.0  # same tag as the deployed code
+          command: ["shalf-data", "backfill", "--start", "2024-01-01"]
+          env:
+            - name: SHALF_CONFIG
+              value: /etc/shalf/shalf.yaml
+          envFrom:
+            - secretRef:
+                name: shalf-secrets
+          resources:
+            requests: {cpu: "2", memory: 8Gi}
+            limits: {memory: 16Gi}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/shalf
+              readOnly: true
+            - name: offline-cache
+              mountPath: /cache
+      volumes:
+        - name: config
+          configMap:
+            name: shalf-feature-store-config  # use the hashed name from `kubectl get cm`
+        - name: offline-cache
+          persistentVolumeClaim:
+            claimName: shalf-offline-cache

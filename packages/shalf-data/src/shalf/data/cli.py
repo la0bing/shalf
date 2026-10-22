@@ -8,6 +8,10 @@
         --entities '{"customer_id": [1, 2]}'
     shalf-data --repo ... historical --entity-csv spine.csv \\
         --feature-service fraud_model_v1 --out train.csv
+    shalf-data --repo ... plan                       # which views' logic changed?
+    shalf-data --repo ... backfill --start 2024-01-01 [--views ...] [--promote]
+    shalf-data --repo ... promote [--views ...]
+    shalf-data --repo ... --profile eda preview customer_txn_stats --limit 20
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ def _parser() -> argparse.ArgumentParser:
         "--repo", default=os.getenv("SHALF_REPO_PATH", "."), help="feature repo dir"
     )
     parser.add_argument("--config", default=None, help="override path to shalf.yaml")
+    parser.add_argument("--profile", default=None, help="config profile (default $SHALF_PROFILE)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("apply", help="validate definitions and prepare the online store")
@@ -47,6 +52,23 @@ def _parser() -> argparse.ArgumentParser:
     inc = sub.add_parser("materialize-incremental", help="materialise since the last watermark")
     inc.add_argument("--end", default=None)
     inc.add_argument("--views", nargs="*", default=None)
+
+    sub.add_parser("plan", help="compare each view's code version with the served version")
+
+    back = sub.add_parser("backfill", help="recompute changed (or given) views over a range")
+    back.add_argument("--start", default=None, help="default: full history")
+    back.add_argument("--end", default=None, help="default: now")
+    back.add_argument("--views", nargs="*", default=None, help="default: new/changed views")
+    back.add_argument("--promote", action="store_true", help="switch readers over when done")
+
+    prom = sub.add_parser("promote", help="switch readers to the current (backfilled) versions")
+    prom.add_argument("--views", nargs="*", default=None, help="default: all changed views")
+
+    prev = sub.add_parser("preview", help="print computed rows of a view")
+    prev.add_argument("view")
+    prev.add_argument("--start", default=None)
+    prev.add_argument("--end", default=None)
+    prev.add_argument("--limit", type=int, default=20)
 
     for name, help_text in (
         ("online", "read online features"),
@@ -71,7 +93,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     configure_logging()
     args = _parser().parse_args(argv)
-    store = FeatureStore.from_repo(args.repo, args.config)
+    store = FeatureStore.from_repo(args.repo, args.config, args.profile)
 
     if args.command == "apply":
         print(
@@ -88,6 +110,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(store.materialize(args.start, args.end, args.views), indent=2))
     elif args.command == "materialize-incremental":
         print(json.dumps(store.materialize_incremental(args.end, args.views), indent=2))
+    elif args.command == "plan":
+        print(json.dumps(store.plan(), indent=2))
+    elif args.command == "backfill":
+        print(
+            json.dumps(
+                store.backfill(args.start, args.end, args.views, promote=args.promote), indent=2
+            )
+        )
+    elif args.command == "promote":
+        print(json.dumps(store.promote(args.views), indent=2))
+    elif args.command == "preview":
+        with pd.option_context("display.width", 200, "display.max_columns", 50):
+            print(store.preview(args.view, args.start, args.end, args.limit).to_string())
     elif args.command == "online":
         response = store.get_online_features(
             json.loads(args.entities),

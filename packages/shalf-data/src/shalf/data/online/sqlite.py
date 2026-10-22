@@ -3,10 +3,9 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
-
-import pandas as pd
 
 from shalf.data.feature_view import BaseFeatureView
 from shalf.data.online.base import (
@@ -22,24 +21,24 @@ from shalf.data.online.base import (
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS online_features (
     project     TEXT    NOT NULL,
-    view        TEXT    NOT NULL,
+    namespace   TEXT    NOT NULL,
     entity_key  TEXT    NOT NULL,
     payload     TEXT    NOT NULL,
     event_ts    INTEGER NOT NULL,
-    PRIMARY KEY (project, view, entity_key)
+    PRIMARY KEY (project, namespace, entity_key)
 );
-CREATE TABLE IF NOT EXISTS online_watermarks (
+CREATE TABLE IF NOT EXISTS online_metadata (
     project     TEXT    NOT NULL,
-    view        TEXT    NOT NULL,
-    watermark   INTEGER NOT NULL,
-    PRIMARY KEY (project, view)
+    key         TEXT    NOT NULL,
+    value       TEXT    NOT NULL,
+    PRIMARY KEY (project, key)
 );
 """
 
 _UPSERT = """
-INSERT INTO online_features (project, view, entity_key, payload, event_ts)
+INSERT INTO online_features (project, namespace, entity_key, payload, event_ts)
 VALUES (?, ?, ?, ?, ?)
-ON CONFLICT (project, view, entity_key) DO UPDATE
+ON CONFLICT (project, namespace, entity_key) DO UPDATE
 SET payload = excluded.payload, event_ts = excluded.event_ts
 WHERE excluded.event_ts >= online_features.event_ts
 """
@@ -77,13 +76,15 @@ class SQLiteOnlineStore(OnlineStore):
     def teardown(self) -> None:
         with closing(self._connect()) as conn, conn:
             conn.execute("DELETE FROM online_features WHERE project = ?", (self.project,))
-            conn.execute("DELETE FROM online_watermarks WHERE project = ?", (self.project,))
+            conn.execute("DELETE FROM online_metadata WHERE project = ?", (self.project,))
 
-    def write_records(self, view: BaseFeatureView, records: Sequence[OnlineRecord]) -> int:
+    def write_records(
+        self, namespace: str, records: Sequence[OnlineRecord], ttl: timedelta | None = None
+    ) -> int:
         rows = [
             (
                 self.project,
-                view.name,
+                namespace,
                 r.entity_key,
                 encode_values(r.values),
                 to_micros(r.event_timestamp),
@@ -95,9 +96,7 @@ class SQLiteOnlineStore(OnlineStore):
             conn.executemany(_UPSERT, rows)
             return conn.total_changes - before
 
-    def read_records(
-        self, view: BaseFeatureView, entity_keys: Sequence[str]
-    ) -> list[OnlineRecord | None]:
+    def read_records(self, namespace: str, entity_keys: Sequence[str]) -> list[OnlineRecord | None]:
         found: dict[str, OnlineRecord] = {}
         unique = list(dict.fromkeys(entity_keys))
         with closing(self._connect()) as conn:
@@ -106,25 +105,25 @@ class SQLiteOnlineStore(OnlineStore):
                 placeholders = ", ".join("?" for _ in chunk)
                 cursor = conn.execute(
                     "SELECT entity_key, payload, event_ts FROM online_features "
-                    f"WHERE project = ? AND view = ? AND entity_key IN ({placeholders})",
-                    (self.project, view.name, *chunk),
+                    f"WHERE project = ? AND namespace = ? AND entity_key IN ({placeholders})",
+                    (self.project, namespace, *chunk),
                 )
                 for key, payload, ts in cursor:
                     found[key] = OnlineRecord(key, decode_values(payload), from_micros(ts))
         return [found.get(key) for key in entity_keys]
 
-    def get_watermark(self, view_name: str) -> pd.Timestamp | None:
+    def get_metadata(self, key: str) -> str | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
-                "SELECT watermark FROM online_watermarks WHERE project = ? AND view = ?",
-                (self.project, view_name),
+                "SELECT value FROM online_metadata WHERE project = ? AND key = ?",
+                (self.project, key),
             ).fetchone()
-        return from_micros(row[0]) if row else None
+        return row[0] if row else None
 
-    def set_watermark(self, view_name: str, value: pd.Timestamp) -> None:
+    def set_metadata(self, key: str, value: str) -> None:
         with closing(self._connect()) as conn, conn:
             conn.execute(
-                "INSERT INTO online_watermarks (project, view, watermark) VALUES (?, ?, ?) "
-                "ON CONFLICT (project, view) DO UPDATE SET watermark = excluded.watermark",
-                (self.project, view_name, to_micros(value)),
+                "INSERT INTO online_metadata (project, key, value) VALUES (?, ?, ?) "
+                "ON CONFLICT (project, key) DO UPDATE SET value = excluded.value",
+                (self.project, key, value),
             )

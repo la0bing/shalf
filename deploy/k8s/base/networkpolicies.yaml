@@ -1,0 +1,37 @@
+# The serving feature server only accepts traffic from the inference API (and
+# the kubelet probes). Exploration clients go to feature-server-eda instead.
+# Requires a CNI that enforces NetworkPolicy (Calico, Cilium, ...).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: feature-server-serving-only
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: feature-server
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: inference-api
+      ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: feature-server-eda-access
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: feature-server-eda
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              shalf.io/eda-access: "true"
+        - podSelector: {}
+      ports:
+        - port: 8080

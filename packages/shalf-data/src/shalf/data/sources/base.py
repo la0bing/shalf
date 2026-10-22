@@ -93,6 +93,17 @@ class DataSource(ABC):
     ) -> pd.DataFrame:
         """Return raw rows (raw column names) with event time in ``[start, end)``."""
 
+    def fingerprint(self) -> dict[str, Any]:
+        """Fields that determine *what* is read (not *where* from). Connection
+        details are excluded so dev and prod produce the same view versions."""
+        return {
+            "type": self.type_name,
+            "timestamp_field": self.timestamp_field,
+            "created_timestamp_field": self.created_timestamp_field,
+            "timestamp_unit": self.timestamp_unit,
+            "field_mapping": self.field_mapping,
+        }
+
     def describe(self) -> dict[str, Any]:
         return {
             "name": self.name,

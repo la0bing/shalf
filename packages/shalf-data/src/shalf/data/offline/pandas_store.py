@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ import pandas as pd
 from shalf.core import ShalfError
 from shalf.data.feature_view import BaseFeatureView, DerivedFeatureView, FeatureView
 from shalf.data.offline.base import OfflineStore, ViewRequest, offline_store_registry
+from shalf.data.offline.cache import ParquetFeatureCache
 from shalf.data.types import CREATED_TIMESTAMP, EVENT_TIMESTAMP, cast_series, to_utc
 
 # Upper read bound past the newest entity timestamp. The point-in-time join
@@ -17,13 +19,29 @@ from shalf.data.types import CREATED_TIMESTAMP, EVENT_TIMESTAMP, cast_series, to
 _READ_MARGIN = pd.Timedelta(seconds=1)
 
 
+class CacheMissError(ShalfError):
+    """``cache_only`` is set and the requested range has not been materialised."""
+
+
 @offline_store_registry.register("pandas")
 class PandasOfflineStore(OfflineStore):
-    """Pulls rows from each view's source and does all joins in-process with pandas.
+    """Joins in-process with pandas; aggregations run in DuckDB.
 
-    Simple and dependency-free; fine up to a few million rows. For larger data,
-    register an offline store that pushes the same work down to the warehouse.
+    Fine up to tens of millions of rows on one node. For more, register an
+    offline store that pushes the same work down to the warehouse.
+
+    ``cache_path`` enables the :class:`ParquetFeatureCache`: views whose
+    requested range was already materialised are read from Parquet instead of
+    being recomputed. ``cache_only=True`` forbids reading the *source*
+    databases at all (derived views may still be computed from cached
+    upstreams), which keeps exploration workloads off production databases.
     """
+
+    def __init__(self, cache_path: str | Path | None = None, cache_only: bool = False) -> None:
+        if cache_only and cache_path is None:
+            raise ValueError("cache_only requires cache_path")
+        self.cache = ParquetFeatureCache(cache_path) if cache_path is not None else None
+        self.cache_only = cache_only
 
     def get_historical_features(
         self, entity_df: pd.DataFrame, requests: Sequence[ViewRequest]
@@ -59,17 +77,27 @@ class PandasOfflineStore(OfflineStore):
         start: pd.Timestamp | None = None,
         end: pd.Timestamp | None = None,
     ) -> pd.DataFrame:
-        if isinstance(view, FeatureView):
+        columns = [*view.join_keys, EVENT_TIMESTAMP, *view.feature_names]
+        if self.cache_only and self.cache is not None and (start is None or end is None):
+            # Open-ended exploration read: clamp to what has been materialised.
+            interval = self.cache.latest_interval(view.name, view.version)
+            if interval is not None:
+                start = interval[0] if start is None else start
+                end = interval[1] if end is None else end
+        if self.cache is not None and self.cache.covers(view.name, view.version, start, end):
+            df = self.cache.read(view.name, view.version, start, end)
+            if df.empty:
+                df = pd.DataFrame({c: pd.Series(dtype=object) for c in columns})
+                df[EVENT_TIMESTAMP] = to_utc(df[EVENT_TIMESTAMP])
+        elif isinstance(view, FeatureView):
+            if self.cache_only:
+                raise CacheMissError(
+                    f"{view.name}@{view.version} is not cached for [{start}, {end}); "
+                    "run a backfill/materialisation for that range or disable cache_only"
+                )
             df = view.source.read(
                 columns=[*view.join_keys, *view.feature_names], start=start, end=end
             )
-            for f in view.schema:
-                try:
-                    df[f.name] = cast_series(df[f.name], f.dtype)
-                except (TypeError, ValueError) as exc:
-                    raise ShalfError(
-                        f"{view.name}:{f.name} is not castable to {f.dtype.value}: {exc}"
-                    ) from exc
         elif isinstance(view, DerivedFeatureView):
             df = self._compute_derived(view, start, end)
         else:
@@ -78,8 +106,25 @@ class PandasOfflineStore(OfflineStore):
         missing = [c for c in [*view.join_keys, *view.feature_names] if c not in df]
         if missing:
             raise ShalfError(f"View {view.name!r} is missing columns {missing}")
+        for f in view.schema:
+            try:
+                df[f.name] = cast_series(df[f.name], f.dtype)
+            except (TypeError, ValueError) as exc:
+                raise ShalfError(
+                    f"{view.name}:{f.name} is not castable to {f.dtype.value}: {exc}"
+                ) from exc
         extra = [CREATED_TIMESTAMP] if CREATED_TIMESTAMP in df else []
         return df[[*view.join_keys, EVENT_TIMESTAMP, *extra, *view.feature_names]]
+
+    def write_cache(
+        self,
+        view: BaseFeatureView,
+        df: pd.DataFrame,
+        start: pd.Timestamp | None,
+        end: pd.Timestamp,
+    ) -> None:
+        if self.cache is not None:
+            self.cache.write(view.name, view.version, df, start, end)
 
     def _compute_derived(
         self, view: DerivedFeatureView, start: pd.Timestamp | None, end: pd.Timestamp | None

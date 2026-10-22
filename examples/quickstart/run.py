@@ -5,6 +5,7 @@ uv run python examples/quickstart/run.py
 
 from __future__ import annotations
 
+import shutil
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -22,8 +23,10 @@ from shalf.data.types import utcnow  # noqa: E402
 
 def main() -> None:
     seed()
-    for suffix in ("", "-wal", "-shm"):  # fresh online store for the demo
-        (HERE / "feature_repo" / "data" / f"online.db{suffix}").unlink(missing_ok=True)
+    data = HERE / "feature_repo" / "data"
+    for suffix in ("", "-wal", "-shm"):  # fresh online store and cache for the demo
+        (data / f"online.db{suffix}").unlink(missing_ok=True)
+    shutil.rmtree(data / "offline_cache", ignore_errors=True)
     store = FeatureStore.from_repo(HERE / "feature_repo")
     print("Feature views (dependency order):", [v.name for v in store.list_feature_views()])
 
