@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shalf
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shalf
+# Images are left as the placeholders `shalf-feature-server` / `shalf-inference-api`;
+# each overlay pins the registry and tag.
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - feature-server.yaml
+  - materializer-cronjob.yaml
+  - inference-api.yaml
+configMapGenerator:
+  # Cluster-side shalf.yaml; replaces the one baked into the image ($SHALF_CONFIG).
+  - name: shalf-feature-store-config
+    files:
+      - shalf.yaml=config/shalf.yaml
+  # Non-secret environment. Secrets (DSNs, passwords) go in the `shalf-secrets`
+  # Secret, created out of band (sealed-secrets / external-secrets / vault).
+  - name: shalf-env
+    literals:
+      - SHALF_LOG_LEVEL=INFO
+      - SHALF_PROJECT=quickstart

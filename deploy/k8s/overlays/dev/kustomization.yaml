@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shalf-dev  # also renames the base Namespace object
+resources:
+  - ../../base
+  - redis.yaml
+configMapGenerator:
+  - name: shalf-env
+    behavior: merge
+    literals:
+      - SHALF_LOG_LEVEL=DEBUG
+      - SHALF_REDIS_URL=redis://redis:6379/0
+patches:
+  - target: {kind: HorizontalPodAutoscaler, name: feature-server}
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+  - target: {kind: Deployment}
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+images:
+  - name: shalf-feature-server
+    newName: ghcr.io/la0bing/shalf-feature-server
+    newTag: dev
+  - name: shalf-inference-api
+    newName: ghcr.io/la0bing/shalf-inference-api
+    newTag: dev

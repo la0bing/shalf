@@ -1,0 +1,9 @@
+project: ${SHALF_PROJECT:-quickstart}
+definitions:
+  - entities.py
+  - features.py
+offline_store:
+  type: pandas
+online_store:
+  type: redis
+  url: ${SHALF_REDIS_URL}

@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Expects a `shalf-secrets` Secret in the namespace with at least
+# SHALF_REDIS_URL (and SHALF_PG_DSN when sources are on Postgres).
+resources:
+  - ../../base
+patches:
+  - target: {kind: HorizontalPodAutoscaler, name: feature-server}
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+  - target: {kind: Deployment, name: feature-server}
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {memory: 2Gi}
+images:
+  - name: shalf-feature-server
+    newName: ghcr.io/la0bing/shalf-feature-server
+    newTag: "0.1.0"
+  - name: shalf-inference-api
+    newName: ghcr.io/la0bing/shalf-inference-api
+    newTag: "0.1.0"

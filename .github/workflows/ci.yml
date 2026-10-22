@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install workspace
+        run: uv sync --all-packages --frozen
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy packages/*/src services/*/src
+      - name: Test
+        run: uv run pytest
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render Kustomize overlays
+        run: |
+          for overlay in deploy/k8s/overlays/*/; do
+            echo "::group::$overlay"
+            kubectl kustomize "$overlay" > /dev/null
+            echo "::endgroup::"
+          done
+
+  images:
+    needs: python
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: feature-server
+            app_module: feature_server.app:app
+          - service: inference-api
+            app_module: inference_api.app:app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          push: false
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            APP_MODULE=${{ matrix.app_module }}
+          tags: shalf-${{ matrix.service }}:ci

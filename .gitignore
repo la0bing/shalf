@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data produced by examples / tests
+*.db
+*.sqlite
+examples/**/data/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

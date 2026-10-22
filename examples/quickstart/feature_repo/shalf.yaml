@@ -1,0 +1,12 @@
+# Feature repository config. Relative `path`s resolve against this directory.
+# In Kubernetes a ConfigMap mounted at $SHALF_CONFIG replaces this file
+# (see deploy/k8s), e.g. to switch the online store to Redis.
+project: quickstart
+definitions:
+  - entities.py
+  - features.py
+offline_store:
+  type: pandas
+online_store:
+  type: sqlite
+  path: ${SHALF_ONLINE_PATH:-data/online.db}
